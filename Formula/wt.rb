@@ -1,7 +1,7 @@
 class Wt < Formula
   desc "Git worktree manager powered by fzf"
-  homepage "https://github.com/<user>/wt"
-  url "https://github.com/<user>/wt/archive/refs/tags/v0.1.0.tar.gz"
+  homepage "https://github.com/RodrigoEspinosa/wt"
+  url "https://github.com/RodrigoEspinosa/wt/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "REPLACE_WITH_SHA256"
   license "MIT"
 

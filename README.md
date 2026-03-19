@@ -9,13 +9,13 @@ Quickly list, switch to, create, or remove git worktrees with fuzzy search.
 ### Homebrew
 
 ```sh
-brew install <user>/tap/wt
+brew install RodrigoEspinosa/tap/wt
 ```
 
 ### From source
 
 ```sh
-git clone https://github.com/<user>/wt.git
+git clone https://github.com/RodrigoEspinosa/wt.git
 cd wt
 make install
 ```
