@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+PROG="wt"
+
+# --- helpers ----------------------------------------------------------------
+
+die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit 1; }
+
+usage() {
+  cat <<EOF
+Usage: $PROG [<branch>]
+       $PROG -d <branch>
+       $PROG -l
+       $PROG init <shell>
+
+Git worktree manager powered by fzf.
+
+With no arguments, launches fzf to fuzzy-pick a worktree.
+With <branch>, switches to that worktree — creating it if it doesn't exist.
+
+Commands:
+  init <shell>  Print shell integration (bash, zsh, fish)
+
+Options:
+  -d <branch>   Remove the worktree for <branch>
+  -l            List worktrees (no fzf)
+  -h            Show this help
+  -v            Show version
+
+Setup:
+  Add to your shell rc file:
+    eval "\$($PROG init zsh)"    # or bash, fish
+
+Environment:
+  WT_BASE_DIR   Parent directory for worktrees (default: sibling of the main repo)
+EOF
+  exit 0
+}
+
+# --- ensure we're in a git repo ---------------------------------------------
+
+ensure_git() {
+  git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
+}
+
+# --- resolve paths ----------------------------------------------------------
+
+repo_root() {
+  local toplevel
+  toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || true
+  if [ -n "$toplevel" ]; then
+    echo "$toplevel"
+  else
+    git rev-parse --git-dir
+  fi
+}
+
+worktree_base() {
+  if [ -n "${WT_BASE_DIR:-}" ]; then
+    echo "$WT_BASE_DIR"
+  else
+    local root
+    root="$(repo_root)"
+    echo "$(dirname "$root")"
+  fi
+}
+
+# --- core functions ---------------------------------------------------------
+
+list_worktrees() {
+  git worktree list --porcelain | awk '
+    /^worktree / { path = substr($0, 10) }
+    /^branch /   { branch = substr($0, 8); sub("refs/heads/", "", branch); print branch "\t" path }
+    /^HEAD /     { if (path != "") print "(detached)\t" path }
+  '
+}
+
+pick_worktree() {
+  local query="${1:-}"
+  local selection
+
+  selection=$(
+    list_worktrees |
+    awk -F'\t' '{ printf "%-30s %s\n", $1, $2 }' |
+    fzf --prompt="worktree> " \
+        --query="$query" \
+        --header="Select a worktree (enter to cd, ctrl-d to delete)" \
+        --bind="ctrl-d:execute(echo DELETE:{1})+abort" \
+        --preview="git log --oneline -10 {1} 2>/dev/null || echo 'no commits'" \
+        --preview-window=right:50%
+  ) || return 0
+
+  if [[ "$selection" == DELETE:* ]]; then
+    local branch="${selection#DELETE:}"
+    branch="$(echo "$branch" | xargs)"
+    remove_worktree "$branch"
+    return 0
+  fi
+
+  local wt_path
+  wt_path="$(echo "$selection" | awk '{ print $NF }')"
+
+  if [ -d "$wt_path" ]; then
+    echo "$wt_path"
+  else
+    die "worktree path not found: $wt_path"
+  fi
+}
+
+create_worktree() {
+  local branch="$1"
+  local start_point="${2:-}"
+  local base
+  base="$(worktree_base)"
+  local wt_path="$base/$branch"
+
+  if [ -d "$wt_path" ]; then
+    echo "$wt_path"
+    return 0
+  fi
+
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$wt_path" "$branch" >&2
+  elif [ -n "$start_point" ]; then
+    git worktree add -b "$branch" "$wt_path" "$start_point" >&2
+  else
+    git worktree add -b "$branch" "$wt_path" >&2
+  fi
+
+  echo "$wt_path"
+}
+
+# Get or create a worktree for <branch>, print its path
+goto_worktree() {
+  local branch="$1"
+  local wt_path
+
+  # Check if a worktree for this branch already exists
+  wt_path=$(list_worktrees | awk -F'\t' -v b="$branch" '$1 == b { print $2 }')
+
+  if [ -n "$wt_path" ]; then
+    echo "$wt_path"
+  else
+    create_worktree "$branch"
+  fi
+}
+
+remove_worktree() {
+  local branch="$1"
+  local wt_path
+
+  wt_path=$(list_worktrees | awk -F'\t' -v b="$branch" '$1 == b { print $2 }')
+
+  if [ -z "$wt_path" ]; then
+    die "no worktree found for branch: $branch"
+  fi
+
+  git worktree remove "$wt_path"
+  printf 'Removed worktree: %s (%s)\n' "$branch" "$wt_path"
+}
+
+# --- shell integration ------------------------------------------------------
+
+shell_init() {
+  local shell="${1:-}"
+  case "$shell" in
+    bash|zsh)
+      cat <<'SHELL'
+wt() {
+  if [ "$1" = "init" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "-v" ] || [ "$1" = "--version" ]; then
+    command wt "$@"
+    return
+  fi
+  local result
+  result="$(command wt "$@")" || return $?
+  if [ -d "$result" ]; then
+    cd "$result" || return
+  elif [ -n "$result" ]; then
+    printf '%s\n' "$result"
+  fi
+}
+SHELL
+      ;;
+    fish)
+      cat <<'SHELL'
+function wt
+  if test (count $argv) -gt 0
+    switch $argv[1]
+      case init -h --help -v --version
+        command wt $argv
+        return
+    end
+  end
+  set -l result (command wt $argv)
+  or return $status
+  if test -d "$result"
+    cd $result
+  else if test -n "$result"
+    echo $result
+  end
+end
+SHELL
+      ;;
+    *)
+      die "unsupported shell: ${shell:-<none>} (use bash, zsh, or fish)"
+      ;;
+  esac
+}
+
+# --- main -------------------------------------------------------------------
+
+main() {
+  local mode=""
+  local branch=""
+  local OPTIND
+
+  # Handle subcommands before getopts
+  if [ "${1:-}" = "init" ]; then
+    shift
+    shell_init "${1:-}"
+    return 0
+  fi
+
+  while getopts ":d:lhv" opt; do
+    case "$opt" in
+      d) mode="delete"; branch="$OPTARG" ;;
+      l) mode="list" ;;
+      h) usage ;;
+      v) echo "$PROG $VERSION"; exit 0 ;;
+      :) die "option -$OPTARG requires an argument" ;;
+      *) die "unknown option: -$OPTARG" ;;
+    esac
+  done
+  shift $((OPTIND - 1))
+
+  ensure_git
+
+  # Default mode: if a positional arg is given, go to that branch; otherwise fzf
+  if [ -z "$mode" ]; then
+    if [ $# -gt 0 ]; then
+      mode="goto"
+      branch="$1"
+    else
+      mode="pick"
+    fi
+  fi
+
+  case "$mode" in
+    pick)
+      pick_worktree
+      ;;
+    goto)
+      goto_worktree "$branch"
+      ;;
+    delete)
+      remove_worktree "$branch"
+      ;;
+    list)
+      list_worktrees | awk -F'\t' '{ printf "%-30s %s\n", $1, $2 }'
+      ;;
+  esac
+}
+
+main "$@"
