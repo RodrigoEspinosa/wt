@@ -134,7 +134,7 @@ create_worktree() {
 
 get_worktree_path() {
   local branch="$1"
-  list_worktrees | awk -F'\t' -v b="$branch" '$1 == b { print $2 }'
+  list_worktrees | WT_BRANCH="$branch" awk -F'\t' '$1 == ENVIRON["WT_BRANCH"] { print $2 }'
 }
 
 # Get or create a worktree for <branch>, print its path
