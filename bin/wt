@@ -132,13 +132,18 @@ create_worktree() {
   echo "$wt_path"
 }
 
+get_worktree_path() {
+  local branch="$1"
+  list_worktrees | awk -F'\t' -v b="$branch" '$1 == b { print $2 }'
+}
+
 # Get or create a worktree for <branch>, print its path
 goto_worktree() {
   local branch="$1"
   local wt_path
 
   # Check if a worktree for this branch already exists
-  wt_path=$(list_worktrees | awk -F'\t' -v b="$branch" '$1 == b { print $2 }')
+  wt_path=$(get_worktree_path "$branch")
 
   if [ -n "$wt_path" ]; then
     echo "$wt_path"
@@ -151,7 +156,7 @@ remove_worktree() {
   local branch="$1"
   local wt_path
 
-  wt_path=$(list_worktrees | awk -F'\t' -v b="$branch" '$1 == b { print $2 }')
+  wt_path=$(get_worktree_path "$branch")
 
   if [ -z "$wt_path" ]; then
     die "no worktree found for branch: $branch"
