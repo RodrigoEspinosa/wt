@@ -70,10 +70,25 @@ worktree_base() {
 # --- core functions ---------------------------------------------------------
 
 list_worktrees() {
-  git worktree list --porcelain | awk '
+  local target="${1:-}"
+  git worktree list --porcelain | awk -v target="$target" '
     /^worktree / { path = substr($0, 10) }
-    /^branch /   { branch = substr($0, 8); sub("refs/heads/", "", branch); print branch "\t" path }
-    /^HEAD /     { if (path != "") print "(detached)\t" path }
+    /^branch /   {
+      branch = substr($0, 8);
+      sub("refs/heads/", "", branch);
+      if (target != "") {
+        if (branch == target) { print path; exit }
+      } else {
+        print branch "\t" path
+      }
+    }
+    /^HEAD /     {
+      if (target != "") {
+        if (target == "(detached)" && path != "") { print path; exit }
+      } else if (path != "") {
+        print "(detached)\t" path
+      }
+    }
   '
 }
 
@@ -134,7 +149,13 @@ create_worktree() {
 
 get_worktree_path() {
   local branch="$1"
-  list_worktrees | awk -F'\t' -v b="$branch" '$1 == b { print $2 }'
+  git worktree list --porcelain | awk -v b="$branch" '
+    /^worktree / { path = substr($0, 10) }
+    /^branch /   {
+      br = substr($0, 8); sub("refs/heads/", "", br)
+      if (br == b) { print path; exit }
+    }
+  '
 }
 
 # Get or create a worktree for <branch>, print its path
