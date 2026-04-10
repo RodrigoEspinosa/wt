@@ -94,7 +94,7 @@ pick_worktree() {
 
   if [[ "$selection" == DELETE:* ]]; then
     local branch="${selection#DELETE:}"
-    branch="$(echo "$branch" | xargs)"
+    read -r branch <<< "$branch"
     remove_worktree "$branch"
     return 0
   fi
