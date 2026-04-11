@@ -24,3 +24,17 @@ setup() {
   [ "$status" -eq 0 ]
   [ "$output" = "/mock/repo" ]
 }
+
+@test "worktree_base uses parent of repo_root if WT_BASE_DIR is empty string" {
+  export WT_BASE_DIR=""
+  run worktree_base
+  [ "$status" -eq 0 ]
+  [ "$output" = "/mock/repo" ]
+}
+
+@test "worktree_base uses WT_BASE_DIR correctly if it contains spaces" {
+  export WT_BASE_DIR="/custom path/with spaces"
+  run worktree_base
+  [ "$status" -eq 0 ]
+  [ "$output" = "/custom path/with spaces" ]
+}
