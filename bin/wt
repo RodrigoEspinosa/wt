@@ -217,9 +217,9 @@ function wt
   set -l result (command wt $argv)
   or return $status
   if test -d "$result"
-    cd $result
+    cd "$result"
   else if test -n "$result"
-    echo $result
+    echo "$result"
   end
 end
 SHELL
