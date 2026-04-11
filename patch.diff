@@ -1,0 +1,31 @@
+--- bin/wt
++++ bin/wt.mod
+@@ -42,15 +42,21 @@
+
+ ensure_git() {
+-  git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
++  local output
++  if output="$(git rev-parse --show-toplevel --git-dir 2>/dev/null)"; then
++    _WT_TOPLEVEL="${output%$'\n'*}"
++    _WT_GIT_DIR="${output#*$'\n'}"
++  elif _WT_GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"; then
++    _WT_TOPLEVEL=""
++  else
++    die "not a git repository"
++  fi
+ }
+
+ # --- resolve paths ----------------------------------------------------------
+
+ repo_root() {
+-  local toplevel
+-  toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || true
+-  if [ -n "$toplevel" ]; then
+-    echo "$toplevel"
++  if [ -n "${_WT_TOPLEVEL:-}" ]; then
++    echo "$_WT_TOPLEVEL"
+   else
+-    git rev-parse --git-dir
++    echo "$_WT_GIT_DIR"
+   fi
+ }

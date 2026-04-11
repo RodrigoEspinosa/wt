@@ -42,24 +42,18 @@ EOF
 # --- ensure we're in a git repo ---------------------------------------------
 
 ensure_git() {
-  local output
-  if output="$(git rev-parse --show-toplevel --git-dir 2>/dev/null)"; then
-    _WT_TOPLEVEL="${output%$'\n'*}"
-    _WT_GIT_DIR="${output#*$'\n'}"
-  elif _WT_GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"; then
-    _WT_TOPLEVEL=""
-  else
-    die "not a git repository"
-  fi
+  git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
 }
 
 # --- resolve paths ----------------------------------------------------------
 
 repo_root() {
-  if [ -n "${_WT_TOPLEVEL:-}" ]; then
-    echo "$_WT_TOPLEVEL"
+  local toplevel
+  toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || true
+  if [ -n "$toplevel" ]; then
+    echo "$toplevel"
   else
-    echo "$_WT_GIT_DIR"
+    git rev-parse --git-dir
   fi
 }
 
