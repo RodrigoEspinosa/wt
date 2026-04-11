@@ -24,3 +24,10 @@ setup() {
   [ "$status" -eq 0 ]
   [ "$output" = "/mock/repo" ]
 }
+
+@test "worktree_base uses parent of repo_root if WT_BASE_DIR is empty" {
+  export WT_BASE_DIR=""
+  run worktree_base
+  [ "$status" -eq 0 ]
+  [ "$output" = "/mock/repo" ]
+}
