@@ -4,6 +4,8 @@ Git worktree manager powered by [fzf](https://github.com/junegunn/fzf).
 
 Quickly list, switch to, create, or remove git worktrees with fuzzy search.
 
+![wt demo](docs/demo.gif)
+
 ## Install
 
 ### Homebrew
@@ -20,9 +22,16 @@ cd wt
 make install
 ```
 
-## Dependencies
+### Uninstall
 
-- `git`
+```sh
+brew uninstall wt            # Homebrew
+make uninstall               # from source
+```
+
+## Requirements
+
+- `git` 2.5 or newer (for worktree support)
 - [fzf](https://github.com/junegunn/fzf)
 
 ## Usage
@@ -41,9 +50,11 @@ wt -d my-feature
 wt -l
 ```
 
+The fzf picker shows a preview pane with the last 10 commits of the highlighted worktree.
+
 ### Shell integration
 
-`wt` needs a shell function to `cd` into worktrees (a subprocess can't change the parent shell's directory). Add to your `~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`:
+`wt` ships a small shell function (via `wt init <shell>`) that wraps the binary and `cd`s into the selected worktree — a subprocess can't change the parent shell's directory on its own. Add to your `~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`:
 
 ```sh
 # zsh / bash
@@ -55,15 +66,15 @@ wt init fish | source
 
 ### Keyboard shortcuts in fzf
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Select worktree (prints path) |
+| Key      | Action                          |
+| -------- | ------------------------------- |
+| `Enter`  | Select worktree (prints path)   |
 | `Ctrl-D` | Delete the highlighted worktree |
 
 ## Environment variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
+| Variable      | Description                        | Default                  |
+| ------------- | ---------------------------------- | ------------------------ |
 | `WT_BASE_DIR` | Parent directory for new worktrees | Sibling of the repo root |
 
 ## License
