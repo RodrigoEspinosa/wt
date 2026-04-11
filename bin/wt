@@ -71,7 +71,8 @@ worktree_base() {
 
 list_worktrees() {
   local target="${1:-}"
-  git worktree list --porcelain | awk -v target="$target" '
+  git worktree list --porcelain | TARGET="$target" awk '
+    BEGIN { target = ENVIRON["TARGET"] }
     /^worktree / { path = substr($0, 10) }
     /^branch /   {
       branch = substr($0, 8);
@@ -149,13 +150,7 @@ create_worktree() {
 
 get_worktree_path() {
   local branch="$1"
-  git worktree list --porcelain | awk -v b="$branch" '
-    /^worktree / { path = substr($0, 10) }
-    /^branch /   {
-      br = substr($0, 8); sub("refs/heads/", "", br)
-      if (br == b) { print path; exit }
-    }
-  '
+  list_worktrees "$branch"
 }
 
 # Get or create a worktree for <branch>, print its path
