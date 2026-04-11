@@ -83,7 +83,7 @@ list_worktrees() {
         print branch "\t" path
       }
     }
-    /^HEAD /     {
+    /^detached/  {
       if (target != "") {
         if (target == "(detached)" && path != "") { print path; exit }
       } else if (path != "") {
