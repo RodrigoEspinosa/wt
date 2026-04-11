@@ -63,7 +63,7 @@ worktree_base() {
   else
     local root
     root="$(repo_root)"
-    echo "$(dirname "$root")"
+    dirname "$root"
   fi
 }
 
