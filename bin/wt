@@ -63,7 +63,7 @@ worktree_base() {
   else
     local root
     root="$(repo_root)"
-    echo "$(dirname "$root")"
+    dirname "$root"
   fi
 }
 
@@ -270,7 +270,7 @@ main() {
 
   case "$mode" in
     pick)
-      pick_worktree
+      pick_worktree ""
       ;;
     goto)
       goto_worktree "$branch"
