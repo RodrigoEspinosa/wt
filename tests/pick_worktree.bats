@@ -9,6 +9,7 @@ setup() {
     echo -e "feature\t/tmp/feature"
   }
   fzf() {
+    cat > /dev/null
     return 1 # Simulate user pressing Esc
   }
   export -f list_worktrees fzf

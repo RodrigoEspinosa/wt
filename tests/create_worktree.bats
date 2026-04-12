@@ -27,13 +27,13 @@ teardown() {
 
   run create_worktree "existing-dir"
   [ "$status" -eq 0 ]
-  [ "${lines[-1]}" = "$WT_BASE_DIR/existing-dir" ]
+  [ "${lines[${#lines[@]}-1]}" = "$WT_BASE_DIR/existing-dir" ]
 }
 
 @test "create_worktree creates a new branch and worktree if branch does not exist" {
   run create_worktree "new-feature"
   [ "$status" -eq 0 ]
-  [ "${lines[-1]}" = "$WT_BASE_DIR/new-feature" ]
+  [ "${lines[${#lines[@]}-1]}" = "$WT_BASE_DIR/new-feature" ]
 
   # Verify side effects
   [ -d "$WT_BASE_DIR/new-feature" ]
@@ -52,7 +52,7 @@ teardown() {
 
   run create_worktree "existing-branch"
   [ "$status" -eq 0 ]
-  [ "${lines[-1]}" = "$WT_BASE_DIR/existing-branch" ]
+  [ "${lines[${#lines[@]}-1]}" = "$WT_BASE_DIR/existing-branch" ]
 
   # Verify side effects
   [ -d "$WT_BASE_DIR/existing-branch" ]
@@ -72,7 +72,7 @@ teardown() {
 
   run create_worktree "feature-from-base" "base-branch"
   [ "$status" -eq 0 ]
-  [ "${lines[-1]}" = "$WT_BASE_DIR/feature-from-base" ]
+  [ "${lines[${#lines[@]}-1]}" = "$WT_BASE_DIR/feature-from-base" ]
 
   # Verify side effects
   [ -d "$WT_BASE_DIR/feature-from-base" ]
