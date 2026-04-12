@@ -270,7 +270,7 @@ main() {
 
   case "$mode" in
     pick)
-      pick_worktree
+      pick_worktree ""
       ;;
     goto)
       goto_worktree "$branch"
