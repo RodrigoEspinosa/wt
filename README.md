@@ -22,6 +22,12 @@ cd wt
 make install
 ```
 
+This installs `wt` to `/usr/local/bin` by default. Override with `PREFIX`:
+
+```sh
+make install PREFIX=$HOME/.local
+```
+
 ### Uninstall
 
 ```sh
@@ -34,42 +40,57 @@ make uninstall               # from source
 - `git` 2.5 or newer (for worktree support)
 - [fzf](https://github.com/junegunn/fzf)
 
-## Usage
+## Quick start
+
+1. Install `wt` (see above).
+2. Add shell integration to your rc file:
 
 ```sh
-# Interactive fuzzy picker
-wt
+# zsh
+eval "$(wt init zsh)"
 
-# Switch to a branch's worktree (creates it if it doesn't exist)
-wt my-feature
-
-# Remove a worktree
-wt -d my-feature
-
-# List all worktrees
-wt -l
-```
-
-The fzf picker shows a preview pane with the last 10 commits of the highlighted worktree.
-
-### Shell integration
-
-`wt` ships a small shell function (via `wt init <shell>`) that wraps the binary and `cd`s into the selected worktree — a subprocess can't change the parent shell's directory on its own. Add to your `~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`:
-
-```sh
-# zsh / bash
-eval "$(wt init zsh)"   # or bash
+# bash
+eval "$(wt init bash)"
 
 # fish
 wt init fish | source
 ```
 
-### Keyboard shortcuts in fzf
+3. Run `wt` inside any git repository.
+
+## Usage
+
+```sh
+wt                    # Interactive fuzzy picker
+wt my-feature         # Switch to branch worktree (creates if needed)
+wt -d my-feature      # Remove a worktree
+wt -l                 # List all worktrees
+```
+
+### Commands
+
+| Command           | Description                                        |
+| ----------------- | -------------------------------------------------- |
+| `wt`              | Launch fzf to fuzzy-pick a worktree                |
+| `wt <branch>`     | Switch to the worktree for `<branch>`, creating it if it doesn't exist |
+| `wt -d <branch>`  | Remove the worktree (and local branch) for `<branch>` |
+| `wt -l`           | List all worktrees with their paths                |
+| `wt init <shell>` | Print shell integration for bash, zsh, or fish     |
+| `wt -h`           | Show help                                          |
+| `wt -v`           | Show version                                       |
+
+### Shell integration
+
+`wt` prints the selected worktree path to stdout. A subprocess can't change the parent shell's working directory, so `wt init <shell>` outputs a thin wrapper function that captures the path and `cd`s into it. It also provides tab completions for branches, worktrees, and options.
+
+### Keyboard shortcuts (fzf picker)
 
 | Key      | Action                          |
 | -------- | ------------------------------- |
 | `Enter`  | Select worktree (prints path)   |
 | `Ctrl-D` | Delete the highlighted worktree |
+
+The preview pane on the right shows the last 10 commits for the highlighted worktree.
 
 ## Environment variables
 
@@ -77,6 +98,22 @@ wt init fish | source
 | ------------- | ---------------------------------- | ------------------------ |
 | `WT_BASE_DIR` | Parent directory for new worktrees | Sibling of the repo root |
 
+When `WT_BASE_DIR` is not set, new worktrees are created as siblings of the repository root. For example, if your repo is at `~/src/myproject`, worktrees are created under `~/src/`.
+
+## Man page
+
+A man page is included at `doc/wt.1`. To install it:
+
+```sh
+# With make
+make install-man
+
+# Or manually
+cp doc/wt.1 /usr/local/share/man/man1/
+```
+
+After installing, view it with `man wt`.
+
 ## License
 
-MIT
+[MIT](LICENSE)

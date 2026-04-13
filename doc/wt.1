@@ -1,0 +1,169 @@
+.TH WT 1 "2026-04-13" "wt 0.1.2" "User Commands"
+.SH NAME
+wt \- git worktree manager powered by fzf
+.SH SYNOPSIS
+.B wt
+.RI [ branch ]
+.br
+.B wt
+.B \-d
+.I branch
+.br
+.B wt
+.B \-l
+.br
+.B wt
+.B init
+.I shell
+.SH DESCRIPTION
+.B wt
+is a command-line tool for managing git worktrees with an interactive
+fuzzy finder interface provided by
+.BR fzf (1).
+It lets you quickly list, switch to, create, or remove worktrees without
+remembering paths or typing long git commands.
+.PP
+With no arguments,
+.B wt
+launches
+.B fzf
+to fuzzy-pick from existing worktrees.
+The preview pane shows the last 10 commits for the highlighted worktree.
+.PP
+With a
+.I branch
+argument,
+.B wt
+switches to the worktree for that branch, creating it if it doesn't exist.
+.SH COMMANDS
+.TP
+.BI "init " shell
+Print shell integration code for
+.IR bash ,
+.IR zsh ,
+or
+.IR fish .
+The generated code defines a wrapper function and tab completions.
+See
+.B SHELL INTEGRATION
+below.
+.SH OPTIONS
+.TP
+.BI \-d " branch"
+Remove the worktree for
+.IR branch .
+The worktree directory is deleted and the branch reference is cleaned up.
+.TP
+.B \-l
+List all worktrees with their branch names and paths.
+.TP
+.B \-h
+Show a brief help message and exit.
+.TP
+.B \-v
+Show the version number and exit.
+.SH SHELL INTEGRATION
+A subprocess cannot change the parent shell's working directory.
+The
+.B init
+command outputs a small shell function that wraps
+.B wt
+and automatically
+.BR cd (1)s
+into the selected worktree path.
+It also provides tab completions for branches, worktrees, and options.
+.PP
+Add one of the following to your shell startup file:
+.PP
+.RS
+.nf
+# zsh (~/.zshrc)
+eval "$(wt init zsh)"
+
+# bash (~/.bashrc)
+eval "$(wt init bash)"
+
+# fish (~/.config/fish/config.fish)
+wt init fish | source
+.fi
+.RE
+.SH KEYBOARD SHORTCUTS
+When using the interactive
+.B fzf
+picker:
+.TP
+.B Enter
+Select the highlighted worktree (prints its path).
+.TP
+.B Ctrl-D
+Delete the highlighted worktree.
+.SH ENVIRONMENT
+.TP
+.B WT_BASE_DIR
+Parent directory where new worktrees are created.
+When not set, worktrees are created as siblings of the repository root
+directory.
+For example, if the repo is at
+.IR ~/src/myproject ,
+worktrees are placed under
+.IR ~/src/ .
+.SH EXIT STATUS
+.TP
+.B 0
+Successful operation, or the user cancelled the fzf picker.
+.TP
+.B 1
+An error occurred (not a git repository, branch not found, etc.).
+.SH EXAMPLES
+Launch the interactive picker:
+.PP
+.RS
+.nf
+$ wt
+.fi
+.RE
+.PP
+Switch to (or create) a worktree for branch
+.IR feature/login :
+.PP
+.RS
+.nf
+$ wt feature/login
+.fi
+.RE
+.PP
+Remove the worktree for branch
+.IR feature/login :
+.PP
+.RS
+.nf
+$ wt -d feature/login
+.fi
+.RE
+.PP
+List all worktrees:
+.PP
+.RS
+.nf
+$ wt -l
+main                           /home/user/src/myproject
+feature/login                  /home/user/src/feature/login
+.fi
+.RE
+.PP
+Use a custom base directory for worktrees:
+.PP
+.RS
+.nf
+$ export WT_BASE_DIR=~/worktrees
+$ wt feature/signup
+.fi
+.RE
+.SH SEE ALSO
+.BR git-worktree (1),
+.BR fzf (1),
+.BR git (1)
+.SH AUTHORS
+Rodrigo Espinosa Curbelo
+.SH LICENSE
+MIT License. See the LICENSE file in the source distribution.
