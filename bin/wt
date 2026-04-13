@@ -187,7 +187,7 @@ remove_worktree() {
 shell_init() {
   local shell="${1:-}"
   case "$shell" in
-    bash|zsh)
+    bash)
       cat <<'SHELL'
 wt() {
   if [ "$1" = "init" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "-v" ] || [ "$1" = "--version" ]; then
@@ -202,6 +202,82 @@ wt() {
     printf '%s\n' "$result"
   fi
 }
+
+_wt() {
+  local cur prev
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  case "$prev" in
+    -d)
+      local worktrees
+      worktrees="$(git worktree list --porcelain 2>/dev/null | awk '/^branch / { b = substr($0, 8); sub("refs/heads/", "", b); print b }')"
+      COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
+      return
+      ;;
+    init)
+      COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
+      return
+      ;;
+  esac
+
+  if [[ "$cur" == -* ]]; then
+    COMPREPLY=($(compgen -W "-d -l -h -v" -- "$cur"))
+  else
+    local branches
+    branches="$(git branch --format='%(refname:short)' 2>/dev/null)"
+    COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+  fi
+}
+complete -F _wt wt
+SHELL
+      ;;
+    zsh)
+      cat <<'SHELL'
+wt() {
+  if [ "$1" = "init" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "-v" ] || [ "$1" = "--version" ]; then
+    command wt "$@"
+    return
+  fi
+  local result
+  result="$(command wt "$@")" || return $?
+  if [ -d "$result" ]; then
+    cd "$result" || return
+  elif [ -n "$result" ]; then
+    printf '%s\n' "$result"
+  fi
+}
+
+_wt() {
+  local -a branches worktrees shells opts
+  shells=(bash zsh fish)
+  opts=(-d -l -h -v)
+
+  _arguments -s \
+    '(-d -l -h -v)1:command:(init)' \
+    '-d[Remove worktree]:branch:->worktrees' \
+    '-l[List worktrees]' \
+    '-h[Show help]' \
+    '-v[Show version]' \
+    '*:branch:->branches' \
+    && return
+
+  case "$state" in
+    worktrees)
+      worktrees=(${(f)"$(git worktree list --porcelain 2>/dev/null | awk '/^branch / { b = substr($0, 8); sub("refs/heads/", "", b); print b }')"})
+      _describe 'worktree branch' worktrees
+      ;;
+    branches)
+      if [[ "${words[2]}" == "init" ]]; then
+        _describe 'shell' shells
+      else
+        branches=(${(f)"$(git branch --format='%(refname:short)' 2>/dev/null)"})
+        _describe 'branch' branches
+      fi
+      ;;
+  esac
+}
+compdef _wt wt
 SHELL
       ;;
     fish)
@@ -222,6 +298,21 @@ function wt
     echo "$result"
   end
 end
+
+# Clear any existing completions for wt
+complete -e -c wt
+
+# Flags
+complete -c wt -s d -x -d 'Remove worktree' -a '(git worktree list --porcelain 2>/dev/null | string match -r "^branch refs/heads/(.*)" | string replace -r "^branch refs/heads/" "")'
+complete -c wt -s l -d 'List worktrees'
+complete -c wt -s h -d 'Show help'
+complete -c wt -s v -d 'Show version'
+
+# Subcommand: init
+complete -c wt -n "__fish_seen_subcommand_from init" -x -a "bash zsh fish"
+
+# Default: branch names
+complete -c wt -n "not __fish_seen_subcommand_from init; and not __fish_is_switch" -x -a '(git branch --format="%(refname:short)" 2>/dev/null)'
 SHELL
       ;;
     *)
