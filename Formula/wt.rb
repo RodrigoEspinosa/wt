@@ -9,6 +9,7 @@ class Wt < Formula
 
   def install
     bin.install "bin/wt"
+    man1.install "doc/wt.1"
   end
 
   test do
