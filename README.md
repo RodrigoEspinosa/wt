@@ -96,9 +96,9 @@ The preview pane on the right shows the last 10 commits for the highlighted work
 
 | Variable      | Description                        | Default                  |
 | ------------- | ---------------------------------- | ------------------------ |
-| `WT_BASE_DIR` | Parent directory for new worktrees | Sibling of the repo root |
+| `WT_BASE_DIR` | Parent directory for new worktrees | `<repo>/_worktrees` |
 
-When `WT_BASE_DIR` is not set, new worktrees are created as siblings of the repository root. For example, if your repo is at `~/src/myproject`, worktrees are created under `~/src/`.
+When `WT_BASE_DIR` is not set, new worktrees are created in a `_worktrees/` directory at the root of the repository. Branch names with slashes (e.g. `rec/my-branch`) are flattened to a single directory (`_worktrees/rec-my-branch`); the branch itself keeps its original name.
 
 ## Man page
 

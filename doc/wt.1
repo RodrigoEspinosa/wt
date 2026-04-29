@@ -101,12 +101,13 @@ Delete the highlighted worktree.
 .TP
 .B WT_BASE_DIR
 Parent directory where new worktrees are created.
-When not set, worktrees are created as siblings of the repository root
-directory.
-For example, if the repo is at
-.IR ~/src/myproject ,
-worktrees are placed under
-.IR ~/src/ .
+When not set, worktrees are placed under
+.IR <repo>/_worktrees/ .
+Branch names containing slashes (e.g.
+.IR rec/my-branch )
+are flattened to a single directory (e.g.
+.IR _worktrees/rec-my-branch );
+the branch name itself is preserved.
 .SH EXIT STATUS
 .TP
 .B 0

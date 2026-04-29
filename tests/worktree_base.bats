@@ -18,18 +18,18 @@ setup() {
   [ "$output" = "/custom/path" ]
 }
 
-@test "worktree_base uses parent of repo_root if WT_BASE_DIR is unset" {
+@test "worktree_base uses <repo_root>/_worktrees if WT_BASE_DIR is unset" {
   unset WT_BASE_DIR
   run worktree_base
   [ "$status" -eq 0 ]
-  [ "$output" = "/mock/repo" ]
+  [ "$output" = "/mock/repo/root/_worktrees" ]
 }
 
-@test "worktree_base uses parent of repo_root if WT_BASE_DIR is empty string" {
+@test "worktree_base uses <repo_root>/_worktrees if WT_BASE_DIR is empty string" {
   export WT_BASE_DIR=""
   run worktree_base
   [ "$status" -eq 0 ]
-  [ "$output" = "/mock/repo" ]
+  [ "$output" = "/mock/repo/root/_worktrees" ]
 }
 
 @test "worktree_base uses WT_BASE_DIR correctly if it contains spaces" {

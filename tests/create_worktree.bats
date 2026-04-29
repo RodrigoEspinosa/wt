@@ -61,6 +61,21 @@ teardown() {
   [ "$(git branch --show-current)" = "existing-branch" ]
 }
 
+@test "create_worktree flattens slashes in branch name to a single directory" {
+  run create_worktree "rec/my-branch"
+  [ "$status" -eq 0 ]
+  [ "${lines[${#lines[@]}-1]}" = "$WT_BASE_DIR/rec-my-branch" ]
+
+  [ -d "$WT_BASE_DIR/rec-my-branch" ]
+  [ ! -d "$WT_BASE_DIR/rec/my-branch" ]
+
+  # The branch itself keeps the slash
+  git show-ref --verify --quiet "refs/heads/rec/my-branch"
+
+  cd "$WT_BASE_DIR/rec-my-branch"
+  [ "$(git branch --show-current)" = "rec/my-branch" ]
+}
+
 @test "create_worktree creates a new branch from a start_point if provided" {
   # Create a commit to start from
   git checkout -q -b base-branch

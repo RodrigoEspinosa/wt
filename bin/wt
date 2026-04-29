@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.1.2"
+VERSION="0.2.0"
 PROG="wt"
 
 # --- helpers ----------------------------------------------------------------
@@ -34,7 +34,7 @@ Setup:
     eval "\$($PROG init zsh)"    # or bash, fish
 
 Environment:
-  WT_BASE_DIR   Parent directory for worktrees (default: sibling of the main repo)
+  WT_BASE_DIR   Parent directory for worktrees (default: <repo>/_worktrees)
 EOF
   exit 0
 }
@@ -63,8 +63,13 @@ worktree_base() {
   else
     local root
     root="$(repo_root)"
-    dirname "$root"
+    echo "$root/_worktrees"
   fi
+}
+
+# Convert a branch name to a flat directory name (e.g. rec/foo -> rec-foo).
+safe_dirname() {
+  printf '%s' "$1" | tr '/' '-'
 }
 
 # --- core functions ---------------------------------------------------------
@@ -130,7 +135,7 @@ create_worktree() {
   local start_point="${2:-}"
   local base
   base="$(worktree_base)"
-  local wt_path="$base/$branch"
+  local wt_path="$base/$(safe_dirname "$branch")"
 
   if [ -d "$wt_path" ]; then
     echo "$wt_path"
