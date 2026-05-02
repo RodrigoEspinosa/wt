@@ -135,7 +135,8 @@ create_worktree() {
   local start_point="${2:-}"
   local base
   base="$(worktree_base)"
-  local wt_path="$base/$(safe_dirname "$branch")"
+  local wt_path
+  wt_path="$base/$(safe_dirname "$branch")"
 
   if [ -d "$wt_path" ]; then
     echo "$wt_path"
