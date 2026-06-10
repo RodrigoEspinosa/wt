@@ -102,14 +102,17 @@ pick_worktree() {
   local query="${1:-}"
   local selection
 
+  command -v fzf >/dev/null 2>&1 || die "fzf is required for the interactive picker (https://github.com/junegunn/fzf)"
+
   selection=$(
     list_worktrees |
-    awk -F'\t' '{ printf "%-30s %s\n", $1, $2 }' |
-    fzf --prompt="worktree> " \
+    awk -F'\t' '{ printf "%-30s\t%s\n", $1, $2 }' |
+    fzf --delimiter='\t' \
+        --prompt="worktree> " \
         --query="$query" \
         --header="Select a worktree (enter to cd, ctrl-d to delete)" \
         --bind="ctrl-d:execute(echo DELETE:{1})+abort" \
-        --preview="git log --oneline -10 {1} 2>/dev/null || echo 'no commits'" \
+        --preview="git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
         --preview-window=right:50%
   ) || return 0
 
@@ -120,8 +123,8 @@ pick_worktree() {
     return 0
   fi
 
-  local wt_path
-  wt_path="$(echo "$selection" | awk '{ print $NF }')"
+  # The path is everything after the first tab, so paths with spaces survive
+  local wt_path="${selection#*$'\t'}"
 
   if [ -d "$wt_path" ]; then
     echo "$wt_path"
