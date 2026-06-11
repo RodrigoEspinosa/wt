@@ -24,7 +24,8 @@ Commands:
   init <shell>  Print shell integration (bash, zsh, fish)
 
 Options:
-  -d <branch>   Remove the worktree for <branch>
+  -d <branch>   Remove the worktree for <branch> (deletes the local branch
+                too if it is fully merged)
   -l            List worktrees (no fzf)
   -h            Show this help
   -v            Show version
@@ -189,6 +190,14 @@ remove_worktree() {
 
   git worktree remove "$wt_path"
   printf 'Removed worktree: %s (%s)\n' "$branch" "$wt_path"
+
+  if [ "$branch" != "(detached)" ]; then
+    if git branch -d "$branch" >/dev/null 2>&1; then
+      printf 'Deleted branch: %s\n' "$branch"
+    else
+      printf 'Kept branch %s (not fully merged; delete with: git branch -D %s)\n' "$branch" "$branch" >&2
+    fi
+  fi
 }
 
 # --- shell integration ------------------------------------------------------

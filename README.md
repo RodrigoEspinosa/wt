@@ -73,7 +73,7 @@ wt -l                 # List all worktrees
 | ----------------- | -------------------------------------------------- |
 | `wt`              | Launch fzf to fuzzy-pick a worktree                |
 | `wt <branch>`     | Switch to the worktree for `<branch>`, creating it if it doesn't exist |
-| `wt -d <branch>`  | Remove the worktree (and local branch) for `<branch>` |
+| `wt -d <branch>`  | Remove the worktree for `<branch>`, deleting the local branch too if it is fully merged |
 | `wt -l`           | List all worktrees with their paths                |
 | `wt init <shell>` | Print shell integration for bash, zsh, or fish     |
 | `wt -h`           | Show help                                          |

@@ -52,7 +52,8 @@ below.
 .BI \-d " branch"
 Remove the worktree for
 .IR branch .
-The worktree directory is deleted and the branch reference is cleaned up.
+The local branch is also deleted if it is fully merged; otherwise it is
+kept and a hint to force-delete it is printed.
 .TP
 .B \-l
 List all worktrees with their branch names and paths.
