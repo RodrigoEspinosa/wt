@@ -63,6 +63,7 @@ wt init fish | source
 ```sh
 wt                    # Interactive fuzzy picker
 wt my-feature         # Switch to branch worktree (creates if needed)
+wt my-feature main    # Create the branch from main if it doesn't exist
 wt -d my-feature      # Remove a worktree
 wt -l                 # List all worktrees
 ```
@@ -72,7 +73,7 @@ wt -l                 # List all worktrees
 | Command           | Description                                        |
 | ----------------- | -------------------------------------------------- |
 | `wt`              | Launch fzf to fuzzy-pick a worktree                |
-| `wt <branch>`     | Switch to the worktree for `<branch>`, creating it if it doesn't exist |
+| `wt <branch> [<start-point>]` | Switch to the worktree for `<branch>`, creating it if it doesn't exist. A new branch starts at `<start-point>` (commit, branch, or tag) if given |
 | `wt -d <branch>`  | Remove the worktree for `<branch>`, deleting the local branch too if it is fully merged |
 | `wt -l`           | List all worktrees with their paths                |
 | `wt init <shell>` | Print shell integration for bash, zsh, or fish     |

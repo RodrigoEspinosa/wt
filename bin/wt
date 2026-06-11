@@ -10,7 +10,7 @@ die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit 1; }
 
 usage() {
   cat <<EOF
-Usage: $PROG [<branch>]
+Usage: $PROG [<branch> [<start-point>]]
        $PROG -d <branch>
        $PROG -l
        $PROG init <shell>
@@ -19,6 +19,7 @@ Git worktree manager powered by fzf.
 
 With no arguments, launches fzf to fuzzy-pick a worktree.
 With <branch>, switches to that worktree — creating it if it doesn't exist.
+A new branch starts at <start-point> if given (commit, branch, or tag).
 
 Commands:
   init <shell>  Print shell integration (bash, zsh, fish)
@@ -166,6 +167,7 @@ get_worktree_path() {
 # Get or create a worktree for <branch>, print its path
 goto_worktree() {
   local branch="$1"
+  local start_point="${2:-}"
   local wt_path
 
   # Check if a worktree for this branch already exists
@@ -174,7 +176,7 @@ goto_worktree() {
   if [ -n "$wt_path" ]; then
     echo "$wt_path"
   else
-    create_worktree "$branch"
+    create_worktree "$branch" "$start_point"
   fi
 }
 
@@ -344,6 +346,7 @@ SHELL
 main() {
   local mode=""
   local branch=""
+  local start_point=""
   local OPTIND
 
   # Handle subcommands before getopts
@@ -372,6 +375,7 @@ main() {
     if [ $# -gt 0 ]; then
       mode="goto"
       branch="$1"
+      start_point="${2:-}"
     else
       mode="pick"
     fi
@@ -382,7 +386,7 @@ main() {
       pick_worktree ""
       ;;
     goto)
-      goto_worktree "$branch"
+      goto_worktree "$branch" "$start_point"
       ;;
     delete)
       remove_worktree "$branch"

@@ -3,7 +3,7 @@
 wt \- git worktree manager powered by fzf
 .SH SYNOPSIS
 .B wt
-.RI [ branch ]
+.RI [ branch " [" start-point ]]
 .br
 .B wt
 .B \-d
@@ -35,6 +35,9 @@ With a
 argument,
 .B wt
 switches to the worktree for that branch, creating it if it doesn't exist.
+When a new branch is created, it starts at
+.I start-point
+(a commit, branch, or tag) if given, otherwise at the current HEAD.
 .SH COMMANDS
 .TP
 .BI "init " shell
@@ -131,6 +134,17 @@ Switch to (or create) a worktree for branch
 .RS
 .nf
 $ wt feature/login
+.fi
+.RE
+.PP
+Create a worktree for a new branch
+.I hotfix
+starting from
+.IR main :
+.PP
+.RS
+.nf
+$ wt hotfix main
 .fi
 .RE
 .PP

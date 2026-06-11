@@ -96,3 +96,17 @@ teardown() {
   [ "$(git branch --show-current)" = "feature-from-base" ]
   [ "$(git rev-parse HEAD)" = "$start_commit" ]
 }
+
+@test "goto_worktree passes the start_point through to create_worktree" {
+  git checkout -q -b base-branch
+  git commit -q --allow-empty -m "base commit"
+  local start_commit="$(git rev-parse HEAD)"
+  git checkout -q main
+
+  run goto_worktree "feature-via-goto" "base-branch"
+  [ "$status" -eq 0 ]
+  [ "${lines[${#lines[@]}-1]}" = "$WT_BASE_DIR/feature-via-goto" ]
+
+  cd "$WT_BASE_DIR/feature-via-goto"
+  [ "$(git rev-parse HEAD)" = "$start_commit" ]
+}
