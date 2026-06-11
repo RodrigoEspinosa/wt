@@ -12,4 +12,10 @@ uninstall:
 	rm -f $(PREFIX)/bin/wt
 	rm -f $(PREFIX)/share/man/man1/wt.1
 
-.PHONY: install install-man uninstall
+test:
+	bats tests
+
+lint:
+	shellcheck bin/wt
+
+.PHONY: install install-man uninstall test lint
