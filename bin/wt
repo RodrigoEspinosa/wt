@@ -108,14 +108,15 @@ pick_worktree() {
 
   selection=$(
     list_worktrees |
-    awk -F'\t' '{ printf "%-30s\t%s\n", $1, $2 }' |
     fzf --delimiter='\t' \
+        --height='~50%' --layout=reverse \
+        --with-nth=1 \
         --prompt="worktree> " \
         --query="$query" \
-        --header="Select a worktree (enter to cd, ctrl-d to delete)" \
+        --header="enter: cd · ctrl-d: delete" \
         --bind="ctrl-d:execute(echo DELETE:{1})+abort" \
-        --preview="git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
-        --preview-window=right:50%
+        --preview="echo {2}; echo; git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
+        --preview-window=right:60%:wrap
   ) || return 0
 
   if [[ "$selection" == DELETE:* ]]; then
