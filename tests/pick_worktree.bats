@@ -24,9 +24,10 @@ setup() {
     echo -e "feature\t/tmp/feature"
   }
   fzf() {
-    # Consume stdin so no broken pipe
+    # Consume stdin so no broken pipe; --expect prints the key line first
+    # (empty for enter), then the selected row.
     cat > /dev/null
-    printf 'feature                       \t/tmp/feature\n'
+    printf '\nfeature\t/tmp/feature\n'
   }
   export -f list_worktrees fzf
 
@@ -44,7 +45,7 @@ setup() {
   }
   fzf() {
     cat > /dev/null
-    printf 'feature                       \t/tmp/wt path with spaces\n'
+    printf '\nfeature\t/tmp/wt path with spaces\n'
   }
   export -f list_worktrees fzf
 
@@ -62,7 +63,7 @@ setup() {
   }
   fzf() {
     cat > /dev/null
-    printf 'feature                       \t/tmp/feature_not_exist\n'
+    printf '\nfeature\t/tmp/feature_not_exist\n'
   }
   export -f list_worktrees fzf
 
@@ -72,13 +73,14 @@ setup() {
   [[ "$output" == *"worktree path not found: /tmp/feature_not_exist"* ]]
 }
 
-@test "pick_worktree calls remove_worktree when fzf outputs DELETE prefix" {
+@test "pick_worktree calls remove_worktree when ctrl-d is pressed" {
   list_worktrees() {
     echo -e "feature\t/tmp/feature"
   }
   fzf() {
+    # --expect=ctrl-d prints the key on the first line, then the selected row.
     cat > /dev/null
-    echo "DELETE:feature"
+    printf 'ctrl-d\nfeature\t/tmp/feature\n'
   }
   remove_worktree() {
     echo "Called remove_worktree with $1"

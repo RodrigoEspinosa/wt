@@ -114,20 +114,28 @@ pick_worktree() {
         --prompt="worktree> " \
         --query="$query" \
         --header="enter: cd · ctrl-d: delete" \
-        --bind="ctrl-d:execute(echo DELETE:{1})+abort" \
+        --expect=ctrl-d \
         --preview="echo {2}; echo; git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
         --preview-window=right:60%:wrap
   ) || return 0
 
-  if [[ "$selection" == DELETE:* ]]; then
-    local branch="${selection#DELETE:}"
-    read -r branch <<< "$branch"
+  # With --expect, fzf prints the pressed key on the first line (empty for
+  # enter), then the selected row on the second line.
+  local key item
+  key="${selection%%$'\n'*}"
+  item="${selection#*$'\n'}"
+
+  # No selection (e.g. empty list or cancelled) — nothing to do
+  [ -z "$item" ] && return 0
+
+  if [ "$key" = "ctrl-d" ]; then
+    local branch="${item%%$'\t'*}"
     remove_worktree "$branch"
     return 0
   fi
 
   # The path is everything after the first tab, so paths with spaces survive
-  local wt_path="${selection#*$'\t'}"
+  local wt_path="${item#*$'\t'}"
 
   if [ -d "$wt_path" ]; then
     echo "$wt_path"
