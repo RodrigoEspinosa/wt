@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-24
+
+### Added
+
+- Worktree hooks via a `.wtconfig` file at the repo root. New worktrees can
+  automatically `copy` files (e.g. `.env`), `link` directories (e.g.
+  `node_modules`), and run a `postCreate` shell command (e.g. `pnpm install`).
+  Hooks run on creation only; set `WT_NO_HOOKS=1` to skip them. The hook command
+  receives `WT_BRANCH`, `WT_PATH`, and `WT_SOURCE` in its environment.
+- `wt pr <number>` fetches a GitHub pull request (`refs/pull/<n>/head`) into a
+  local branch and checks it out in a worktree. Uses `gh` for a friendly branch
+  name when available, otherwise `pr-<number>`.
+- `wt clean` finds worktrees whose branch is merged into the default branch or
+  whose upstream is gone, and removes the ones you select via an fzf
+  multi-select list (falls back to a printed list without fzf).
+
+### Changed
+
+- Removing a worktree now forces past untracked files (build artifacts left by
+  `postCreate` hooks) but still refuses to delete a worktree with uncommitted
+  changes to tracked files.
+- Informational messages from worktree removal now go to stderr, keeping stdout
+  reserved for the path the shell wrapper `cd`s into.
+
 ## [0.4.2] - 2026-06-25
 
 ### Fixed
@@ -79,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extracted a common worktree path lookup function (#1).
 - Expanded the README with a demo gif, uninstall, and requirements.
 
+[0.5.0]: https://github.com/RodrigoEspinosa/wt/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/RodrigoEspinosa/wt/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/RodrigoEspinosa/wt/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/RodrigoEspinosa/wt/compare/v0.3.0...v0.4.0

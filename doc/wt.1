@@ -1,9 +1,16 @@
-.TH WT 1 "2026-06-14" "wt 0.4.1" "User Commands"
+.TH WT 1 "2026-06-24" "wt 0.5.0" "User Commands"
 .SH NAME
 wt \- git worktree manager powered by fzf
 .SH SYNOPSIS
 .B wt
 .RI [ branch " [" start-point ]]
+.br
+.B wt
+.B pr
+.I number
+.br
+.B wt
+.B clean
 .br
 .B wt
 .B \-d
@@ -40,6 +47,36 @@ When a new branch is created, it starts at
 (a commit, branch, or tag) if given, otherwise at the current HEAD.
 .SH COMMANDS
 .TP
+.BI "pr " number
+Fetch GitHub pull request
+.I number
+.RI ( refs/pull/ number /head )
+from the
+.B origin
+remote (or the first configured remote) into a local branch and check it
+out in a worktree.
+If
+.BR gh (1)
+is installed, the worktree is named after the pull request's head branch;
+otherwise it falls back to
+.IR pr- number .
+.TP
+.B clean
+Find worktrees whose branch is fully merged into the default branch or
+whose upstream branch has been deleted
+.RB ( [gone] ),
+and offer them for removal in an
+.B fzf
+multi-select list
+.RB ( Tab
+to mark,
+.B Enter
+to remove).
+Without
+.BR fzf ,
+the candidates are printed for removal with
+.BR "wt \-d" .
+.TP
 .BI "init " shell
 Print shell integration code for
 .IR bash ,
@@ -57,6 +94,9 @@ Remove the worktree for
 .IR branch .
 The local branch is also deleted if it is fully merged; otherwise it is
 kept and a hint to force-delete it is printed.
+Removal forces past untracked files (such as build artifacts created by
+.B postCreate
+hooks) but refuses if tracked files have uncommitted changes.
 .TP
 .B \-l
 List all worktrees with their branch names and paths.
@@ -91,6 +131,51 @@ eval "$(wt init bash)"
 wt init fish | source
 .fi
 .RE
+.SH HOOKS
+If a
+.B .wtconfig
+file exists at the root of the primary worktree, its directives run whenever
+.B wt
+creates a
+.I new
+worktree (including via
+.BR "wt pr" ).
+Each line has the form
+.IR key " = " value ;
+blank lines and lines beginning with
+.B #
+are ignored.
+The following keys are recognised and may each appear multiple times,
+running in the order listed:
+.TP
+.BI "copy " path
+Copy
+.I path
+from the primary worktree into the new worktree.
+.TP
+.BI "link " path
+Symlink
+.I path
+in the new worktree to the copy in the primary worktree.
+.TP
+.BI "postCreate " command
+Run
+.I command
+with the new worktree as the working directory. The environment variables
+.BR WT_BRANCH ,
+.BR WT_PATH ,
+and
+.B WT_SOURCE
+are available to the command.
+.PP
+Sources for
+.B copy
+and
+.B link
+that do not exist are skipped with a notice. All hook output is written to
+standard error. Set
+.B WT_NO_HOOKS
+to skip hooks for a single invocation.
 .SH KEYBOARD SHORTCUTS
 When using the interactive
 .B fzf
@@ -112,6 +197,12 @@ Branch names containing slashes (e.g.
 are flattened to a single directory (e.g.
 .IR _worktrees/rec-my-branch );
 the branch name itself is preserved.
+.TP
+.B WT_NO_HOOKS
+When set to any value, skip the
+.B .wtconfig
+.RB ( copy / link / postCreate )
+hooks for the current invocation.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -145,6 +236,22 @@ starting from
 .RS
 .nf
 $ wt hotfix main
+.fi
+.RE
+.PP
+Check out GitHub pull request #123 in a worktree:
+.PP
+.RS
+.nf
+$ wt pr 123
+.fi
+.RE
+.PP
+Remove all merged or stale worktrees interactively:
+.PP
+.RS
+.nf
+$ wt clean
 .fi
 .RE
 .PP

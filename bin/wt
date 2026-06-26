@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.4.2"
+VERSION="0.5.0"
 PROG="wt"
 
 # --- helpers ----------------------------------------------------------------
@@ -11,6 +11,8 @@ die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit 1; }
 usage() {
   cat <<EOF
 Usage: $PROG [<branch> [<start-point>]]
+       $PROG pr <number>
+       $PROG clean
        $PROG -d <branch>
        $PROG -l
        $PROG init <shell>
@@ -22,6 +24,8 @@ With <branch>, switches to that worktree — creating it if it doesn't exist.
 A new branch starts at <start-point> if given (commit, branch, or tag).
 
 Commands:
+  pr <number>   Check out a GitHub pull request in a new worktree
+  clean         Pick and remove merged or stale worktrees (fzf multi-select)
   init <shell>  Print shell integration (bash, zsh, fish)
 
 Options:
@@ -35,8 +39,16 @@ Setup:
   Add to your shell rc file:
     eval "\$($PROG init zsh)"    # or bash, fish
 
+Hooks:
+  Drop a .wtconfig file at the repo root to prep new worktrees automatically:
+    copy = .env                # copy file/dir from the primary worktree
+    link = node_modules        # symlink from the primary worktree
+    postCreate = pnpm install  # shell command run inside the new worktree
+  copy/link/postCreate may each appear multiple times. Set WT_NO_HOOKS=1 to skip.
+
 Environment:
   WT_BASE_DIR   Parent directory for worktrees (default: <repo>/_worktrees)
+  WT_NO_HOOKS   When set, skip .wtconfig copy/link/postCreate hooks
 EOF
   exit 0
 }
@@ -72,6 +84,73 @@ worktree_base() {
 # Convert a branch name to a flat directory name (e.g. rec/foo -> rec-foo).
 safe_dirname() {
   printf '%s' "$1" | tr '/' '-'
+}
+
+# The primary (main) working tree — the first entry git reports. This is the
+# source of truth for .wtconfig and the files copied/linked into new worktrees.
+primary_worktree() {
+  git worktree list --porcelain | awk '/^worktree / { print substr($0, 10); exit }'
+}
+
+# --- config & hooks ---------------------------------------------------------
+
+# Path to the .wtconfig file in the primary worktree, if one exists.
+config_path() {
+  local root
+  root="$(primary_worktree)"
+  [ -n "$root" ] && [ -f "$root/.wtconfig" ] && echo "$root/.wtconfig"
+}
+
+# Print every value for <key> in .wtconfig, one per line. Lines look like
+# "key = value"; blank lines and those starting with # are ignored.
+config_get() {
+  local key="$1" file
+  file="$(config_path)"
+  [ -z "$file" ] && return 0
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" | sed 's/[[:space:]]*$//'
+}
+
+# Run the .wtconfig hooks for a freshly created worktree. All output goes to
+# stderr so stdout stays reserved for the worktree path the shell wrapper cd's
+# into. Failures are reported but never abort the switch.
+run_hooks() {
+  local branch="$1" wt_path="$2"
+  [ -n "${WT_NO_HOOKS:-}" ] && return 0
+
+  local src
+  src="$(primary_worktree)"
+  [ -z "$src" ] && return 0
+
+  local f
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    if [ -e "$src/$f" ]; then
+      mkdir -p "$(dirname "$wt_path/$f")"
+      cp -R "$src/$f" "$wt_path/$f" && printf '%s: copied %s\n' "$PROG" "$f" >&2
+    else
+      printf '%s: skip copy %s (not in primary worktree)\n' "$PROG" "$f" >&2
+    fi
+  done < <(config_get copy)
+
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    if [ -e "$src/$f" ]; then
+      mkdir -p "$(dirname "$wt_path/$f")"
+      ln -s "$src/$f" "$wt_path/$f" && printf '%s: linked %s\n' "$PROG" "$f" >&2
+    else
+      printf '%s: skip link %s (not in primary worktree)\n' "$PROG" "$f" >&2
+    fi
+  done < <(config_get link)
+
+  local cmd
+  while IFS= read -r cmd; do
+    [ -z "$cmd" ] && continue
+    printf '%s: postCreate: %s\n' "$PROG" "$cmd" >&2
+    if ! ( cd "$wt_path" && WT_BRANCH="$branch" WT_PATH="$wt_path" WT_SOURCE="$src" \
+             bash -c "$cmd" ) >&2; then
+      printf '%s: postCreate hook failed (continuing)\n' "$PROG" >&2
+    fi
+  done < <(config_get postCreate)
 }
 
 # --- core functions ---------------------------------------------------------
@@ -165,6 +244,7 @@ create_worktree() {
     git worktree add -b "$branch" "$wt_path" >&2
   fi
 
+  run_hooks "$branch" "$wt_path"
   echo "$wt_path"
 }
 
@@ -199,16 +279,150 @@ remove_worktree() {
     die "no worktree found for branch: $branch"
   fi
 
-  git worktree remove "$wt_path"
-  printf 'Removed worktree: %s (%s)\n' "$branch" "$wt_path"
+  # Refuse to remove a worktree with uncommitted *tracked* changes. Untracked
+  # files are expected (postCreate hooks build node_modules etc.), so we force
+  # past those — but never past unsaved edits to tracked files.
+  local tracked_dirty
+  tracked_dirty="$(git -C "$wt_path" status --porcelain --untracked-files=no 2>/dev/null || true)"
+  if [ -n "$tracked_dirty" ]; then
+    die "worktree has uncommitted changes: $wt_path (stash/commit them, or run: git worktree remove --force \"$wt_path\")"
+  fi
+
+  git worktree remove --force "$wt_path"
+  printf 'Removed worktree: %s (%s)\n' "$branch" "$wt_path" >&2
 
   if [ "$branch" != "(detached)" ]; then
     if git branch -d "$branch" >/dev/null 2>&1; then
-      printf 'Deleted branch: %s\n' "$branch"
+      printf 'Deleted branch: %s\n' "$branch" >&2
     else
       printf 'Kept branch %s (not fully merged; delete with: git branch -D %s)\n' "$branch" "$branch" >&2
     fi
   fi
+}
+
+# --- pull requests ----------------------------------------------------------
+
+# Pick the remote to fetch PRs from: prefer "origin", else the first remote.
+default_remote() {
+  if git remote | grep -qx origin; then
+    echo origin
+  else
+    git remote | head -1
+  fi
+}
+
+# Check out GitHub PR #<n> in a worktree, printing its path.
+pr_worktree() {
+  local n="$1"
+  [ -n "$n" ] || die "usage: $PROG pr <number>"
+  case "$n" in ''|*[!0-9]*) die "invalid PR number: $n" ;; esac
+
+  local remote
+  remote="$(default_remote)"
+  [ -n "$remote" ] || die "no git remote configured"
+
+  # Use gh for a human-friendly branch name when available; otherwise pr-<n>.
+  local branch=""
+  if command -v gh >/dev/null 2>&1; then
+    branch="$(gh pr view "$n" --json headRefName -q .headRefName 2>/dev/null || true)"
+  fi
+  [ -n "$branch" ] || branch="pr-$n"
+
+  # Already checked out? Just go there.
+  local existing
+  existing="$(get_worktree_path "$branch")"
+  if [ -n "$existing" ]; then
+    echo "$existing"
+    return 0
+  fi
+
+  printf '%s: fetching PR #%s from %s\n' "$PROG" "$n" "$remote" >&2
+  git fetch -q "$remote" "refs/pull/$n/head:$branch" >&2 \
+    || die "could not fetch PR #$n from $remote"
+
+  local base wt_path
+  base="$(worktree_base)"
+  wt_path="$base/$(safe_dirname "$branch")"
+  git worktree add "$wt_path" "$branch" >&2
+  run_hooks "$branch" "$wt_path"
+  echo "$wt_path"
+}
+
+# --- clean ------------------------------------------------------------------
+
+# The repo's default branch — used to decide what counts as "merged".
+default_branch() {
+  local d
+  d="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
+  if [ -n "$d" ]; then echo "$d"; return; fi
+  local c
+  for c in main master trunk; do
+    if git show-ref --verify --quiet "refs/heads/$c"; then echo "$c"; return; fi
+  done
+  git -C "$(primary_worktree)" symbolic-ref --quiet --short HEAD 2>/dev/null || true
+}
+
+# Print "branch<TAB>path<TAB>reason" for each worktree branch that is merged
+# into the default branch or whose upstream has been deleted ("gone").
+clean_candidates() {
+  local def merged_list gone_list cur_top
+  def="$(default_branch)"
+  merged_list="$(git branch --merged "$def" --format='%(refname:short)' 2>/dev/null || true)"
+  gone_list="$(git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads \
+                 | awk '$2 == "[gone]" { print $1 }')"
+  cur_top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+
+  list_worktrees | while IFS=$'\t' read -r branch path; do
+    [ "$branch" = "(detached)" ] && continue
+    [ "$branch" = "$def" ] && continue
+    [ "$path" = "$cur_top" ] && continue
+
+    local reason=""
+    if printf '%s\n' "$merged_list" | grep -qx "$branch"; then
+      reason="merged into $def"
+    fi
+    if printf '%s\n' "$gone_list" | grep -qx "$branch"; then
+      if [ -n "$reason" ]; then reason="$reason, upstream gone"; else reason="upstream gone"; fi
+    fi
+
+    if [ -n "$reason" ]; then
+      printf '%s\t%s\t%s\n' "$branch" "$path" "$reason"
+    fi
+  done
+}
+
+clean_worktrees() {
+  local candidates
+  candidates="$(clean_candidates)"
+
+  if [ -z "$candidates" ]; then
+    printf '%s: nothing to clean — no merged or stale worktrees\n' "$PROG" >&2
+    return 0
+  fi
+
+  if ! command -v fzf >/dev/null 2>&1; then
+    printf '%s: merged or stale worktrees (install fzf to select, or use -d):\n' "$PROG" >&2
+    printf '%s\n' "$candidates" | awk -F'\t' '{ printf "  %-30s %s\n", $1, $3 }' >&2
+    return 0
+  fi
+
+  local selection
+  selection=$(
+    printf '%s\n' "$candidates" |
+    fzf --multi --delimiter='\t' --with-nth=1,3 \
+        --height='~50%' --layout=reverse \
+        --prompt="clean> " \
+        --header="tab: mark · enter: remove · esc: cancel" \
+        --preview="echo {2}; echo; git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
+        --preview-window=right:60%:wrap
+  ) || return 0
+
+  [ -z "$selection" ] && return 0
+
+  printf '%s\n' "$selection" | while IFS=$'\t' read -r branch _ _; do
+    [ -z "$branch" ] && continue
+    remove_worktree "$branch" || true
+  done
 }
 
 # --- shell integration ------------------------------------------------------
@@ -255,7 +469,7 @@ _wt() {
   else
     local branches
     branches="$(git branch --format='%(refname:short)' 2>/dev/null)"
-    COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+    COMPREPLY=($(compgen -W "$branches pr clean" -- "$cur"))
   fi
 }
 complete -F _wt wt
@@ -283,7 +497,7 @@ _wt() {
   opts=(-d -l -h -v)
 
   _arguments -s \
-    '(-d -l -h -v)1:command:(init)' \
+    '(-d -l -h -v)1:command:(init pr clean)' \
     '-d[Remove worktree]:branch:->worktrees' \
     '-l[List worktrees]' \
     '-h[Show help]' \
@@ -337,11 +551,13 @@ complete -c wt -s l -d 'List worktrees'
 complete -c wt -s h -d 'Show help'
 complete -c wt -s v -d 'Show version'
 
-# Subcommand: init
+# Subcommands
+complete -c wt -n "__fish_use_subcommand" -a "pr" -d 'Check out a GitHub PR'
+complete -c wt -n "__fish_use_subcommand" -a "clean" -d 'Remove merged/stale worktrees'
 complete -c wt -n "__fish_seen_subcommand_from init" -x -a "bash zsh fish"
 
 # Default: branch names
-complete -c wt -n "not __fish_seen_subcommand_from init; and not __fish_is_switch" -x -a '(git branch --format="%(refname:short)" 2>/dev/null)'
+complete -c wt -n "not __fish_seen_subcommand_from init pr clean; and not __fish_is_switch" -x -a '(git branch --format="%(refname:short)" 2>/dev/null)'
 SHELL
       ;;
     *)
@@ -359,11 +575,24 @@ main() {
   local OPTIND
 
   # Handle subcommands before getopts
-  if [ "${1:-}" = "init" ]; then
-    shift
-    shell_init "${1:-}"
-    return 0
-  fi
+  case "${1:-}" in
+    init)
+      shift
+      shell_init "${1:-}"
+      return 0
+      ;;
+    pr)
+      shift
+      ensure_git
+      pr_worktree "${1:-}"
+      return 0
+      ;;
+    clean)
+      ensure_git
+      clean_worktrees
+      return 0
+      ;;
+  esac
 
   while getopts ":d:lhv" opt; do
     case "$opt" in

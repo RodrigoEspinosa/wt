@@ -40,6 +40,31 @@ teardown() {
   ! git show-ref --verify --quiet "refs/heads/merged-feature"
 }
 
+@test "remove_worktree force-removes a worktree that only has untracked files" {
+  create_worktree "with-artifacts" > /dev/null
+  # Simulate build artifacts a postCreate hook would leave behind
+  printf 'API_KEY=1\n' > "$WT_BASE_DIR/with-artifacts/.env"
+  mkdir -p "$WT_BASE_DIR/with-artifacts/node_modules"
+
+  run remove_worktree "with-artifacts"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Removed worktree: with-artifacts"* ]]
+  [ ! -d "$WT_BASE_DIR/with-artifacts" ]
+}
+
+@test "remove_worktree refuses when tracked files have uncommitted changes" {
+  create_worktree "dirty-feature" > /dev/null
+  # Modify a tracked file without committing
+  git -C "$WT_BASE_DIR/dirty-feature" commit -q --allow-empty -m "base"
+  printf 'changed\n' >> "$WT_BASE_DIR/dirty-feature/tracked.txt"
+  git -C "$WT_BASE_DIR/dirty-feature" add tracked.txt
+
+  run remove_worktree "dirty-feature"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"uncommitted changes"* ]]
+  [ -d "$WT_BASE_DIR/dirty-feature" ]
+}
+
 @test "remove_worktree keeps an unmerged branch and says how to force-delete" {
   create_worktree "unmerged-feature" > /dev/null
   git -C "$WT_BASE_DIR/unmerged-feature" commit -q --allow-empty -m "unmerged work"
