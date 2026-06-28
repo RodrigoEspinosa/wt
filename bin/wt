@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.5.0"
+VERSION="0.5.1"
 PROG="wt"
 
 # --- helpers ----------------------------------------------------------------
@@ -192,8 +192,8 @@ pick_worktree() {
         --with-nth=1 \
         --prompt="worktree> " \
         --query="$query" \
-        --header="enter: cd · ctrl-d: delete" \
-        --expect=ctrl-d \
+        --header="enter: cd · ctrl-d/del: delete" \
+        --expect=ctrl-d,del \
         --preview="echo {2}; echo; git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
         --preview-window=right:60%:wrap
   ) || return 0
@@ -207,7 +207,7 @@ pick_worktree() {
   # No selection (e.g. empty list or cancelled) — nothing to do
   [ -z "$item" ] && return 0
 
-  if [ "$key" = "ctrl-d" ]; then
+  if [ "$key" = "ctrl-d" ] || [ "$key" = "del" ]; then
     local branch="${item%%$'\t'*}"
     remove_worktree "$branch"
     return 0
