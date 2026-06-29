@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.5.1"
+VERSION="0.6.0"
 PROG="wt"
 
 # --- helpers ----------------------------------------------------------------
@@ -12,20 +12,24 @@ usage() {
   cat <<EOF
 Usage: $PROG [<branch> [<start-point>]]
        $PROG pr <number>
-       $PROG clean
+       $PROG clean [--prune] [--yes]
        $PROG -d <branch>
        $PROG -l
        $PROG init <shell>
 
 Git worktree manager powered by fzf.
 
-With no arguments, launches fzf to fuzzy-pick a worktree.
+With no arguments, launches fzf to fuzzy-pick a worktree. In the picker,
+enter switches, ctrl-n creates a worktree from the typed name, and
+ctrl-d/del deletes the highlighted one.
 With <branch>, switches to that worktree — creating it if it doesn't exist.
 A new branch starts at <start-point> if given (commit, branch, or tag).
 
 Commands:
   pr <number>   Check out a GitHub pull request in a new worktree
   clean         Pick and remove merged or stale worktrees (fzf multi-select)
+                --prune fetches/prunes remotes first; --yes removes all
+                candidates without prompting
   init <shell>  Print shell integration (bash, zsh, fish)
 
 Options:
@@ -45,6 +49,9 @@ Hooks:
     link = node_modules        # symlink from the primary worktree
     postCreate = pnpm install  # shell command run inside the new worktree
   copy/link/postCreate may each appear multiple times. Set WT_NO_HOOKS=1 to skip.
+
+  A baseDir = <path> line in .wtconfig sets the worktree parent directory per
+  repo (overridden by WT_BASE_DIR). Relative paths resolve against the repo root.
 
 Environment:
   WT_BASE_DIR   Parent directory for worktrees (default: <repo>/_worktrees)
@@ -72,13 +79,24 @@ repo_root() {
 }
 
 worktree_base() {
+  # WT_BASE_DIR wins, then a baseDir key in .wtconfig, then the default.
   if [ -n "${WT_BASE_DIR:-}" ]; then
     echo "$WT_BASE_DIR"
-  else
-    local root
-    root="$(repo_root)"
-    echo "$root/_worktrees"
+    return
   fi
+
+  local configured
+  configured="$(config_get baseDir | head -n1)"
+  if [ -n "$configured" ]; then
+    case "$configured" in
+      /*)  echo "$configured" ;;                          # absolute
+      \~*) echo "$HOME${configured#\~}" ;;                # home-relative
+      *)   echo "$(repo_root)/$configured" ;;             # relative to repo root
+    esac
+    return
+  fi
+
+  echo "$(repo_root)/_worktrees"
 }
 
 # Convert a branch name to a flat directory name (e.g. rec/foo -> rec-foo).
@@ -179,6 +197,34 @@ list_worktrees() {
   '
 }
 
+# Decorate worktrees for display. Emits, per worktree, four tab-separated
+# fields: "<flags>\t<branch>\t<path>\t<ahead/behind>".
+#   flags  two markers — '*' for the worktree you're currently in, '!' if it
+#          has uncommitted changes (tracked or untracked).
+#   a/b    "↑N" commits ahead / "↓N" behind its upstream, when it has one.
+# The branch and path stay in their own clean fields so callers can parse them.
+annotate_worktrees() {
+  local cur_top
+  cur_top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+
+  local branch path
+  list_worktrees | while IFS=$'\t' read -r branch path; do
+    local cur=" " dirty=" " ab="" counts behind ahead
+    [ "$path" = "$cur_top" ] && cur="*"
+    [ -n "$(git -C "$path" status --porcelain 2>/dev/null || true)" ] && dirty="!"
+
+    counts="$(git -C "$path" rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || true)"
+    if [ -n "$counts" ]; then
+      behind="${counts%%	*}"
+      ahead="${counts##*	}"
+      [ "${ahead:-0}" != 0 ] && ab="$ab ↑$ahead"
+      [ "${behind:-0}" != 0 ] && ab="$ab ↓$behind"
+    fi
+
+    printf '%s%s\t%s\t%s\t%s\n' "$cur" "$dirty" "$branch" "$path" "$ab"
+  done
+}
+
 pick_worktree() {
   local query="${1:-}"
   local selection
@@ -186,35 +232,43 @@ pick_worktree() {
   command -v fzf >/dev/null 2>&1 || die "fzf is required for the interactive picker (https://github.com/junegunn/fzf)"
 
   selection=$(
-    list_worktrees |
+    annotate_worktrees |
     fzf --delimiter='\t' \
         --height='~50%' --layout=reverse \
-        --with-nth=1 \
+        --with-nth=1,2,4 \
         --prompt="worktree> " \
         --query="$query" \
-        --header="enter: cd · ctrl-d/del: delete" \
-        --expect=ctrl-d,del \
-        --preview="echo {2}; echo; git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
+        --print-query \
+        --header="enter: cd · ctrl-n: new · ctrl-d/del: delete" \
+        --expect=ctrl-d,del,ctrl-n \
+        --preview="echo {3}; echo; git -C {3} -c color.status=always status -sb 2>/dev/null; echo; git -C {3} log --oneline -10 2>/dev/null || echo 'no commits'" \
         --preview-window=right:60%:wrap
-  ) || return 0
+  ) || true
 
-  # With --expect, fzf prints the pressed key on the first line (empty for
-  # enter), then the selected row on the second line.
-  local key item
-  key="${selection%%$'\n'*}"
-  item="${selection#*$'\n'}"
+  # With --print-query and --expect, fzf prints up to three lines: the typed
+  # query, the pressed key (empty for plain enter), then the selected row.
+  # set -e is suppressed for the group because it precedes a "|| true".
+  local query_line key item
+  { IFS= read -r query_line; IFS= read -r key; IFS= read -r item; } <<< "$selection" || true
 
-  # No selection (e.g. empty list or cancelled) — nothing to do
-  [ -z "$item" ] && return 0
-
-  if [ "$key" = "ctrl-d" ] || [ "$key" = "del" ]; then
-    local branch="${item%%$'\t'*}"
-    remove_worktree "$branch"
+  # ctrl-n: create (or switch to) a worktree named by the typed query.
+  if [ "$key" = "ctrl-n" ]; then
+    [ -n "$query_line" ] || return 0
+    goto_worktree "$query_line"
     return 0
   fi
 
-  # The path is everything after the first tab, so paths with spaces survive
-  local wt_path="${item#*$'\t'}"
+  # No row selected (empty list or Esc) — nothing to do.
+  [ -z "$item" ] && return 0
+
+  local branch wt_path
+  branch="$(printf '%s' "$item" | cut -f2)"
+  wt_path="$(printf '%s' "$item" | cut -f3)"
+
+  if [ "$key" = "ctrl-d" ] || [ "$key" = "del" ]; then
+    remove_worktree "$branch"
+    return 0
+  fi
 
   if [ -d "$wt_path" ]; then
     echo "$wt_path"
@@ -232,6 +286,15 @@ create_worktree() {
   wt_path="$base/$(safe_dirname "$branch")"
 
   if [ -d "$wt_path" ]; then
+    # The dir already exists. Guard against safe_dirname collisions: "a/b" and
+    # "a-b" both flatten to "a-b". If it's a worktree for a *different* branch,
+    # refuse rather than silently switching to the wrong tree; otherwise treat
+    # the call as idempotent and just hand back the path.
+    local occupant
+    occupant="$(git -C "$wt_path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    if [ -n "$occupant" ] && [ "$occupant" != "$branch" ]; then
+      die "worktree dir already used by branch '$occupant': $wt_path (rename to avoid the slash/dash collision, or set WT_BASE_DIR)"
+    fi
     echo "$wt_path"
     return 0
   fi
@@ -392,11 +455,36 @@ clean_candidates() {
 }
 
 clean_worktrees() {
+  local do_prune="" assume_yes=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --prune)            do_prune=1 ;;
+      -y|--yes|--all)     assume_yes=1 ;;
+      *)                  die "unknown clean option: $1 (use --prune, --yes)" ;;
+    esac
+    shift
+  done
+
+  # --prune refreshes remote-tracking refs first so "upstream gone" is accurate.
+  if [ -n "$do_prune" ]; then
+    printf '%s: fetching and pruning remotes...\n' "$PROG" >&2
+    git fetch --all --prune -q >&2 || printf '%s: prune fetch failed (continuing)\n' "$PROG" >&2
+  fi
+
   local candidates
   candidates="$(clean_candidates)"
 
   if [ -z "$candidates" ]; then
     printf '%s: nothing to clean — no merged or stale worktrees\n' "$PROG" >&2
+    return 0
+  fi
+
+  # --yes removes every candidate without prompting (handy for scripts/CI).
+  if [ -n "$assume_yes" ]; then
+    printf '%s\n' "$candidates" | while IFS=$'\t' read -r branch _ _; do
+      [ -z "$branch" ] && continue
+      remove_worktree "$branch" || true
+    done
     return 0
   fi
 
@@ -588,8 +676,9 @@ main() {
       return 0
       ;;
     clean)
+      shift
       ensure_git
-      clean_worktrees
+      clean_worktrees "$@"
       return 0
       ;;
   esac
@@ -630,7 +719,9 @@ main() {
       remove_worktree "$branch"
       ;;
     list)
-      list_worktrees | awk -F'\t' '{ printf "%-30s %s\n", $1, $2 }'
+      annotate_worktrees | while IFS=$'\t' read -r flags branch path ab; do
+        printf '%s %-30s %s\n' "$flags" "$branch$ab" "$path"
+      done
       ;;
   esac
 }

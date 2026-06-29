@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-28
+
+### Added
+
+- The interactive picker can now **create** a worktree: type a name and press
+  `ctrl-n` to create (or switch to) it, instead of dropping back to the command
+  line.
+- `wt -l` and the picker now show worktree state: `*` marks the worktree you're
+  in, `!` flags uncommitted changes, and `↑N`/`↓N` show how far each branch sits
+  ahead/behind its upstream. The picker preview also shows working-tree status.
+- `wt clean` accepts `--prune` (run `git fetch --all --prune` first so deleted
+  upstreams are detected) and `--yes`/`--all` (remove every candidate without
+  the fzf prompt, for scripts and CI).
+- `.wtconfig` gains a `baseDir` key to set the worktree parent directory per
+  repo. Relative paths resolve against the repo root and a leading `~` expands;
+  `WT_BASE_DIR` still overrides it.
+
+### Fixed
+
+- Creating a worktree whose flattened directory name collides with an existing
+  worktree for a different branch (e.g. `rec/foo` vs `rec-foo`) now fails with a
+  clear error instead of silently switching to the wrong worktree.
+
+### Changed
+
+- `make install` now installs the man page as well as the binary.
+
 ## [0.5.1] - 2026-06-26
 
 ### Fixed
@@ -111,6 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extracted a common worktree path lookup function (#1).
 - Expanded the README with a demo gif, uninstall, and requirements.
 
+[0.6.0]: https://github.com/RodrigoEspinosa/wt/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/RodrigoEspinosa/wt/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/RodrigoEspinosa/wt/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/RodrigoEspinosa/wt/compare/v0.4.1...v0.4.2

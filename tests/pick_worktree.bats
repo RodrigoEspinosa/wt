@@ -2,17 +2,21 @@
 
 setup() {
   source "${BATS_TEST_DIRNAME}/../bin/wt"
+
+  # The picker feeds annotate_worktrees into fzf; stub it so no real git runs.
+  # fzf is stubbed per-test to emulate the user's interaction.
+  annotate_worktrees() {
+    printf '  \tfeature\t/tmp/feature\t\n'
+  }
+  export -f annotate_worktrees
 }
 
 @test "pick_worktree returns 0 and prints nothing when fzf is cancelled" {
-  list_worktrees() {
-    echo -e "feature\t/tmp/feature"
-  }
   fzf() {
     cat > /dev/null
-    return 1 # Simulate user pressing Esc
+    return 130 # Simulate user pressing Esc
   }
-  export -f list_worktrees fzf
+  export -f fzf
 
   run pick_worktree
   [ "$status" -eq 0 ]
@@ -20,16 +24,13 @@ setup() {
 }
 
 @test "pick_worktree returns path when fzf outputs selection" {
-  list_worktrees() {
-    echo -e "feature\t/tmp/feature"
-  }
   fzf() {
-    # Consume stdin so no broken pipe; --expect prints the key line first
-    # (empty for enter), then the selected row.
+    # --print-query then --expect: query line, key line (empty for enter),
+    # then the full selected row (flags, branch, path, ahead/behind).
     cat > /dev/null
-    printf '\nfeature\t/tmp/feature\n'
+    printf '\n\n  \tfeature\t/tmp/feature\t\n'
   }
-  export -f list_worktrees fzf
+  export -f fzf
 
   mkdir -p /tmp/feature
   run pick_worktree
@@ -40,14 +41,11 @@ setup() {
 }
 
 @test "pick_worktree handles worktree paths containing spaces" {
-  list_worktrees() {
-    echo -e "feature\t/tmp/wt path with spaces"
-  }
   fzf() {
     cat > /dev/null
-    printf '\nfeature\t/tmp/wt path with spaces\n'
+    printf '\n\n  \tfeature\t/tmp/wt path with spaces\t\n'
   }
-  export -f list_worktrees fzf
+  export -f fzf
 
   mkdir -p "/tmp/wt path with spaces"
   run pick_worktree
@@ -58,14 +56,11 @@ setup() {
 }
 
 @test "pick_worktree dies when selected path does not exist" {
-  list_worktrees() {
-    echo -e "feature\t/tmp/feature_not_exist"
-  }
   fzf() {
     cat > /dev/null
-    printf '\nfeature\t/tmp/feature_not_exist\n'
+    printf '\n\n  \tfeature\t/tmp/feature_not_exist\t\n'
   }
-  export -f list_worktrees fzf
+  export -f fzf
 
   run pick_worktree
 
@@ -74,21 +69,34 @@ setup() {
 }
 
 @test "pick_worktree calls remove_worktree when ctrl-d is pressed" {
-  list_worktrees() {
-    echo -e "feature\t/tmp/feature"
-  }
   fzf() {
-    # --expect=ctrl-d prints the key on the first line, then the selected row.
     cat > /dev/null
-    printf 'ctrl-d\nfeature\t/tmp/feature\n'
+    printf '\nctrl-d\n  \tfeature\t/tmp/feature\t\n'
   }
   remove_worktree() {
     echo "Called remove_worktree with $1"
   }
-  export -f list_worktrees fzf remove_worktree
+  export -f fzf remove_worktree
 
   run pick_worktree
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Called remove_worktree with feature"* ]]
+}
+
+@test "pick_worktree creates a worktree from the query when ctrl-n is pressed" {
+  fzf() {
+    # ctrl-n with no row selected: act on the typed query instead.
+    cat > /dev/null
+    printf 'brand-new\nctrl-n\n\n'
+  }
+  goto_worktree() {
+    echo "Called goto_worktree with $1"
+  }
+  export -f fzf goto_worktree
+
+  run pick_worktree
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Called goto_worktree with brand-new"* ]]
 }

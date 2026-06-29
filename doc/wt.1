@@ -1,4 +1,4 @@
-.TH WT 1 "2026-06-24" "wt 0.5.0" "User Commands"
+.TH WT 1 "2026-06-28" "wt 0.6.0" "User Commands"
 .SH NAME
 wt \- git worktree manager powered by fzf
 .SH SYNOPSIS
@@ -11,6 +11,8 @@ wt \- git worktree manager powered by fzf
 .br
 .B wt
 .B clean
+.RB [ \-\-prune ]
+.RB [ \-\-yes ]
 .br
 .B wt
 .B \-d
@@ -35,7 +37,18 @@ With no arguments,
 launches
 .B fzf
 to fuzzy-pick from existing worktrees.
-The preview pane shows the last 10 commits for the highlighted worktree.
+Each row is marked with
+.B *
+for the worktree you are currently in,
+.B !
+if it has uncommitted changes, and
+.RB ↑ N / ↓ N
+for commits ahead of / behind its upstream.
+The preview pane shows the working-tree status and the last 10 commits for the
+highlighted worktree.
+From the picker you can also press
+.B Ctrl-N
+to create a worktree named by the text you have typed.
 .PP
 With a
 .I branch
@@ -76,6 +89,17 @@ Without
 .BR fzf ,
 the candidates are printed for removal with
 .BR "wt \-d" .
+With
+.BR \-\-prune ,
+.B "git fetch \-\-all \-\-prune"
+is run first so branches whose upstream was deleted on the remote are
+detected.
+With
+.B \-\-yes
+(alias
+.BR \-\-all ),
+every candidate is removed without the interactive prompt — useful in
+scripts.
 .TP
 .BI "init " shell
 Print shell integration code for
@@ -99,7 +123,12 @@ Removal forces past untracked files (such as build artifacts created by
 hooks) but refuses if tracked files have uncommitted changes.
 .TP
 .B \-l
-List all worktrees with their branch names and paths.
+List all worktrees with their branch names and paths, marking the current
+worktree
+.RB ( * ),
+ones with uncommitted changes
+.RB ( ! ),
+and how far each branch is ahead of / behind its upstream.
 .TP
 .B \-h
 Show a brief help message and exit.
@@ -145,8 +174,21 @@ Each line has the form
 blank lines and lines beginning with
 .B #
 are ignored.
-The following keys are recognised and may each appear multiple times,
-running in the order listed:
+The
+.B copy
+,
+.B link
+, and
+.B postCreate
+keys below run as hooks and may each appear multiple times, in the order
+listed. A
+.B baseDir
+key may also appear (once) to set where this repo's worktrees are created;
+relative paths resolve against the repo root and a leading
+.B ~
+expands to the home directory.
+.B WT_BASE_DIR
+overrides it.
 .TP
 .BI "copy " path
 Copy
@@ -184,13 +226,22 @@ picker:
 .B Enter
 Select the highlighted worktree (prints its path).
 .TP
-.B Ctrl-D
+.B Ctrl-N
+Create (or switch to) a worktree named by the typed query.
+.TP
+.B "Ctrl-D, Del"
 Delete the highlighted worktree.
 .SH ENVIRONMENT
 .TP
 .B WT_BASE_DIR
 Parent directory where new worktrees are created.
-When not set, worktrees are placed under
+When not set,
+.B wt
+uses the
+.B baseDir
+key from
+.B .wtconfig
+if present, otherwise
 .IR <repo>/_worktrees/ .
 Branch names containing slashes (e.g.
 .IR rec/my-branch )
@@ -269,8 +320,8 @@ List all worktrees:
 .RS
 .nf
 $ wt -l
-main                           /home/user/src/myproject
-feature/login                  /home/user/src/feature/login
+*  main                           /home/user/src/myproject
+   feature/login ↑2              /home/user/src/feature/login
 .fi
 .RE
 .PP

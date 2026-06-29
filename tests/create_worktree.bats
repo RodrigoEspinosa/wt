@@ -97,6 +97,18 @@ teardown() {
   [ "$(git rev-parse HEAD)" = "$start_commit" ]
 }
 
+@test "create_worktree refuses a dir already used by another branch (safe_dirname collision)" {
+  # "rec-foo" and "rec/foo" both flatten to the directory "rec-foo".
+  create_worktree "rec-foo" > /dev/null
+
+  run create_worktree "rec/foo"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"already used by branch 'rec-foo'"* ]]
+
+  # The colliding branch must not have been created.
+  ! git show-ref --verify --quiet "refs/heads/rec/foo"
+}
+
 @test "goto_worktree passes the start_point through to create_worktree" {
   git checkout -q -b base-branch
   git commit -q --allow-empty -m "base commit"

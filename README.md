@@ -66,9 +66,14 @@ wt my-feature         # Switch to branch worktree (creates if needed)
 wt my-feature main    # Create the branch from main if it doesn't exist
 wt pr 123             # Check out GitHub PR #123 in a worktree
 wt clean              # Pick and remove merged/stale worktrees
+wt clean --prune --yes # Prune remotes, then remove every candidate non-interactively
 wt -d my-feature      # Remove a worktree
-wt -l                 # List all worktrees
+wt -l                 # List worktrees (marks current `*`, dirty `!`, ahead/behind)
 ```
+
+Inside the interactive picker: <kbd>enter</kbd> switches to the highlighted
+worktree, <kbd>ctrl-n</kbd> creates a worktree from whatever you've typed, and
+<kbd>ctrl-d</kbd> / <kbd>del</kbd> removes the highlighted one.
 
 ### Commands
 
@@ -77,9 +82,9 @@ wt -l                 # List all worktrees
 | `wt`              | Launch fzf to fuzzy-pick a worktree                |
 | `wt <branch> [<start-point>]` | Switch to the worktree for `<branch>`, creating it if it doesn't exist. A new branch starts at `<start-point>` (commit, branch, or tag) if given |
 | `wt pr <number>`  | Fetch a GitHub pull request and check it out in a worktree |
-| `wt clean`        | Multi-select and remove worktrees whose branch is merged or whose upstream is gone |
+| `wt clean [--prune] [--yes]` | Multi-select and remove worktrees whose branch is merged or whose upstream is gone. `--prune` fetches/prunes remotes first; `--yes` removes all candidates without prompting |
 | `wt -d <branch>`  | Remove the worktree for `<branch>`, deleting the local branch too if it is fully merged |
-| `wt -l`           | List all worktrees with their paths                |
+| `wt -l`           | List all worktrees, marking the current one (`*`), uncommitted changes (`!`), and ahead/behind upstream |
 | `wt init <shell>` | Print shell integration for bash, zsh, or fish     |
 | `wt -h`           | Show help                                          |
 | `wt -v`           | Show version                                       |
@@ -97,6 +102,7 @@ postCreate = pnpm install  # shell command run inside the new worktree
 ```
 
 - `copy` / `link` / `postCreate` may each appear multiple times; they run in that order.
+- `baseDir = <path>` sets where this repo's worktrees live (relative paths resolve against the repo root, `~` expands to your home). `WT_BASE_DIR` overrides it.
 - `copy` and `link` sources are resolved against the **primary** worktree; missing sources are skipped with a notice.
 - `postCreate` runs with the new worktree as the working directory and can read `$WT_BRANCH`, `$WT_PATH`, and `$WT_SOURCE`.
 - All hook output goes to stderr, so the shell wrapper still `cd`s you in cleanly. Set `WT_NO_HOOKS=1` to skip hooks for one run.
@@ -111,18 +117,22 @@ Because hooks leave untracked files behind, `wt -d` and `wt clean` force past **
 
 `wt clean` finds worktrees whose branch is fully merged into the default branch or whose upstream has been deleted (`[gone]`), and offers them in an fzf multi-select list (`Tab` to mark, `Enter` to remove). Without fzf it prints the candidates so you can remove them with `wt -d`.
 
+- `--prune` runs `git fetch --all --prune` first, so branches whose upstream was deleted on the remote are detected as `[gone]`.
+- `--yes` (alias `--all`) skips the picker and removes every candidate — handy for scripts and CI.
+
 ### Shell integration
 
 `wt` prints the selected worktree path to stdout. A subprocess can't change the parent shell's working directory, so `wt init <shell>` outputs a thin wrapper function that captures the path and `cd`s into it. It also provides tab completions for branches, worktrees, and options.
 
 ### Keyboard shortcuts (fzf picker)
 
-| Key      | Action                          |
-| -------- | ------------------------------- |
-| `Enter`  | Select worktree (prints path)   |
-| `Ctrl-D` | Delete the highlighted worktree |
+| Key             | Action                                            |
+| --------------- | ------------------------------------------------- |
+| `Enter`         | Select worktree (prints path)                     |
+| `Ctrl-N`        | Create a worktree from the typed query            |
+| `Ctrl-D` / `Del`| Delete the highlighted worktree                   |
 
-The preview pane on the right shows the last 10 commits for the highlighted worktree.
+The preview pane on the right shows the working-tree status and the last 10 commits for the highlighted worktree.
 
 ## Environment variables
 
@@ -131,11 +141,12 @@ The preview pane on the right shows the last 10 commits for the highlighted work
 | `WT_BASE_DIR` | Parent directory for new worktrees | `<repo>/_worktrees` |
 | `WT_NO_HOOKS` | When set, skip `.wtconfig` copy/link/postCreate hooks | _(unset)_ |
 
-When `WT_BASE_DIR` is not set, new worktrees are created in a `_worktrees/` directory at the root of the repository. Branch names with slashes (e.g. `rec/my-branch`) are flattened to a single directory (`_worktrees/rec-my-branch`); the branch itself keeps its original name.
+When `WT_BASE_DIR` is not set, `wt` uses the `baseDir` key from `.wtconfig` if present, otherwise a `_worktrees/` directory at the root of the repository. Branch names with slashes (e.g. `rec/my-branch`) are flattened to a single directory (`_worktrees/rec-my-branch`); the branch itself keeps its original name. If two branches would flatten to the same directory (e.g. `rec/foo` and `rec-foo`), `wt` refuses to create the second rather than dropping you in the wrong worktree.
 
 ## Man page
 
-A man page is included at `doc/wt.1`. To install it:
+A man page is included at `doc/wt.1`. `make install` installs it alongside the
+binary. To install just the man page:
 
 ```sh
 # With make

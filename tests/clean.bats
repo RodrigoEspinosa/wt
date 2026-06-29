@@ -62,3 +62,18 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"nothing to clean"* ]]
 }
+
+@test "clean_worktrees --yes removes merged candidates without fzf" {
+  create_worktree "merged-feature" > /dev/null
+
+  run clean_worktrees --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Removed worktree: merged-feature"* ]]
+  [ ! -d "$WT_BASE_DIR/merged-feature" ]
+}
+
+@test "clean_worktrees rejects an unknown option" {
+  run clean_worktrees --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unknown clean option: --bogus"* ]]
+}

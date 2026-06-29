@@ -1,6 +1,6 @@
 PREFIX ?= /usr/local
 
-install:
+install: install-man
 	install -d $(PREFIX)/bin
 	install -m 755 bin/wt $(PREFIX)/bin/wt
 
