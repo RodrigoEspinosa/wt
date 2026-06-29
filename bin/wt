@@ -1,12 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.6.0"
+VERSION="0.6.1"
 PROG="wt"
 
 # --- helpers ----------------------------------------------------------------
 
 die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit 1; }
+
+# Run "$@" while showing a spinner on stderr, so slow git operations don't look
+# like a freeze. Falls back to a plain run when stderr isn't a terminal (scripts,
+# CI, tests). Returns the command's exit status; its output is captured and
+# replayed afterwards so it never collides with the spinner line.
+spin() {
+  local msg="$1"; shift
+  if [ ! -t 2 ]; then
+    # No terminal (scripts, CI, tests): leave a breadcrumb and run plainly. The
+    # command's own output goes to stderr so stdout stays reserved for results.
+    printf '%s: %s...\n' "$PROG" "$msg" >&2
+    "$@" >&2
+    return $?
+  fi
+
+  local out
+  out="$(mktemp)"
+  "$@" >"$out" 2>&1 &
+  local pid=$! i=0 rc=0
+  local frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  trap 'kill "$pid" 2>/dev/null; printf "\r\033[K\033[?25h" >&2' INT TERM
+  printf '\033[?25l' >&2
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r%s %s' "${frames[i++ % ${#frames[@]}]}" "$msg" >&2
+    sleep 0.08
+  done
+  wait "$pid" || rc=$?
+  printf '\r\033[K\033[?25h' >&2
+  trap - INT TERM
+  [ -s "$out" ] && cat "$out" >&2
+  rm -f "$out"
+  return $rc
+}
 
 usage() {
   cat <<EOF
@@ -203,26 +236,44 @@ list_worktrees() {
 #          has uncommitted changes (tracked or untracked).
 #   a/b    "↑N" commits ahead / "↓N" behind its upstream, when it has one.
 # The branch and path stay in their own clean fields so callers can parse them.
+# Decorate a single worktree (<branch> <path>) and print its four-field row.
+# Each call shells out to git status + rev-list, so annotate_worktrees runs many
+# of these in parallel. WT_CUR_TOP names the worktree we're currently in.
+annotate_one() {
+  local branch="$1" path="$2"
+  local cur=" " dirty=" " ab="" counts behind ahead
+  [ "$path" = "${WT_CUR_TOP:-}" ] && cur="*"
+  [ -n "$(git -C "$path" status --porcelain 2>/dev/null || true)" ] && dirty="!"
+
+  counts="$(git -C "$path" rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || true)"
+  if [ -n "$counts" ]; then
+    behind="${counts%%	*}"
+    ahead="${counts##*	}"
+    [ "${ahead:-0}" != 0 ] && ab="$ab ↑$ahead"
+    [ "${behind:-0}" != 0 ] && ab="$ab ↓$behind"
+  fi
+
+  printf '%s%s\t%s\t%s\t%s\n' "$cur" "$dirty" "$branch" "$path" "$ab"
+}
+
+# Decorate every worktree for display, computing the per-worktree git lookups in
+# parallel and streaming rows to stdout as they finish (fzf renders them live).
+# Output order is non-deterministic — fzf sorts on match anyway. See annotate_one
+# for the field layout.
 annotate_worktrees() {
-  local cur_top
-  cur_top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  local list jobs
+  list="$(list_worktrees)"
+  [ -z "$list" ] && return 0
 
-  local branch path
-  list_worktrees | while IFS=$'\t' read -r branch path; do
-    local cur=" " dirty=" " ab="" counts behind ahead
-    [ "$path" = "$cur_top" ] && cur="*"
-    [ -n "$(git -C "$path" status --porcelain 2>/dev/null || true)" ] && dirty="!"
+  jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+  export WT_CUR_TOP
+  WT_CUR_TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  export -f annotate_one
 
-    counts="$(git -C "$path" rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || true)"
-    if [ -n "$counts" ]; then
-      behind="${counts%%	*}"
-      ahead="${counts##*	}"
-      [ "${ahead:-0}" != 0 ] && ab="$ab ↑$ahead"
-      [ "${behind:-0}" != 0 ] && ab="$ab ↓$behind"
-    fi
-
-    printf '%s%s\t%s\t%s\t%s\n' "$cur" "$dirty" "$branch" "$path" "$ab"
-  done
+  # Feed branch and path as separate NUL-delimited tokens (-0 -n2) so values with
+  # spaces survive and xargs never reinterprets the tab/field separators.
+  printf '%s\n' "$list" | tr '\t\n' '\0\0' \
+    | xargs -0 -n2 -P "$jobs" bash -c 'annotate_one "$@"' _
 }
 
 pick_worktree() {
@@ -300,11 +351,11 @@ create_worktree() {
   fi
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git worktree add "$wt_path" "$branch" >&2
+    spin "Creating worktree $branch" git worktree add "$wt_path" "$branch"
   elif [ -n "$start_point" ]; then
-    git worktree add -b "$branch" "$wt_path" "$start_point" >&2
+    spin "Creating worktree $branch" git worktree add -b "$branch" "$wt_path" "$start_point"
   else
-    git worktree add -b "$branch" "$wt_path" >&2
+    spin "Creating worktree $branch" git worktree add -b "$branch" "$wt_path"
   fi
 
   run_hooks "$branch" "$wt_path"
@@ -351,7 +402,7 @@ remove_worktree() {
     die "worktree has uncommitted changes: $wt_path (stash/commit them, or run: git worktree remove --force \"$wt_path\")"
   fi
 
-  git worktree remove --force "$wt_path"
+  spin "Removing worktree $branch" git worktree remove --force "$wt_path"
   printf 'Removed worktree: %s (%s)\n' "$branch" "$wt_path" >&2
 
   if [ "$branch" != "(detached)" ]; then
@@ -399,14 +450,13 @@ pr_worktree() {
     return 0
   fi
 
-  printf '%s: fetching PR #%s from %s\n' "$PROG" "$n" "$remote" >&2
-  git fetch -q "$remote" "refs/pull/$n/head:$branch" >&2 \
+  spin "Fetching PR #$n from $remote" git fetch -q "$remote" "refs/pull/$n/head:$branch" \
     || die "could not fetch PR #$n from $remote"
 
   local base wt_path
   base="$(worktree_base)"
   wt_path="$base/$(safe_dirname "$branch")"
-  git worktree add "$wt_path" "$branch" >&2
+  spin "Creating worktree $branch" git worktree add "$wt_path" "$branch"
   run_hooks "$branch" "$wt_path"
   echo "$wt_path"
 }
