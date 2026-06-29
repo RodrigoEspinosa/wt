@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-06-29
+
+### Changed
+
+- The picker and `wt -l` now compute each worktree's status (`!`, `↑N`/`↓N`) in
+  parallel instead of one at a time, and stream rows into fzf as they finish, so
+  the picker appears instantly on repos with many worktrees instead of blocking
+  on a serial run of `git status` per worktree.
+
+### Fixed
+
+- Slow git operations now show a spinner instead of appearing frozen: deleting a
+  worktree (`git worktree remove`, e.g. on a large `node_modules`), creating one
+  (`git worktree add`), and `wt pr` (the network fetch and checkout). Falls back
+  to a plain run with a one-line breadcrumb when output isn't a terminal.
+
 ## [0.6.0] - 2026-06-28
 
 ### Added
