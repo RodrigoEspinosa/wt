@@ -565,11 +565,8 @@ clean_worktrees() {
 
 # --- shell integration ------------------------------------------------------
 
-shell_init() {
-  local shell="${1:-}"
-  case "$shell" in
-    bash)
-      cat <<'SHELL'
+print_sh_wrapper() {
+  cat <<'SHELL'
 wt() {
   if [ "$1" = "init" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "-v" ] || [ "$1" = "--version" ]; then
     command wt "$@"
@@ -583,7 +580,15 @@ wt() {
     printf '%s\n' "$result"
   fi
 }
+SHELL
+}
 
+shell_init() {
+  local shell="${1:-}"
+  case "$shell" in
+    bash)
+      print_sh_wrapper
+      cat <<'SHELL'
 _wt() {
   local cur prev
   cur="${COMP_WORDS[COMP_CWORD]}"
@@ -614,21 +619,8 @@ complete -F _wt wt
 SHELL
       ;;
     zsh)
+      print_sh_wrapper
       cat <<'SHELL'
-wt() {
-  if [ "$1" = "init" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "-v" ] || [ "$1" = "--version" ]; then
-    command wt "$@"
-    return
-  fi
-  local result
-  result="$(command wt "$@")" || return $?
-  if [ -d "$result" ]; then
-    cd "$result" || return
-  elif [ -n "$result" ]; then
-    printf '%s\n' "$result"
-  fi
-}
-
 _wt() {
   local -a branches worktrees shells opts
   shells=(bash zsh fish)
