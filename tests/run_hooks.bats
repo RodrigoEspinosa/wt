@@ -92,3 +92,31 @@ EOF
   [ "$status" -eq 0 ]
   [ "${lines[${#lines[@]}-1]}" = "$WT_BASE_DIR/feature-path" ]
 }
+
+@test "config_get returns nothing when .wtconfig is empty" {
+  touch .wtconfig
+  run config_get copy
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "config_get returns nothing when key is missing in .wtconfig" {
+  printf 'link = node_modules\n' > .wtconfig
+  run config_get copy
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "config_get handles keys with empty values" {
+  printf 'copy =\n' > .wtconfig
+  run config_get copy
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "config_get does not match substring/prefix of another key" {
+  printf 'copy = .env\n' > .wtconfig
+  run config_get co
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
