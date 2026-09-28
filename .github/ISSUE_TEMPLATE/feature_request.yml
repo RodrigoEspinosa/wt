@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an idea for wt
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like wt to do?
+    validations:
+      required: true
