@@ -1,5 +1,10 @@
 # wt
 
+[![CI](https://github.com/RodrigoEspinosa/wt/actions/workflows/ci.yml/badge.svg)](https://github.com/RodrigoEspinosa/wt/actions/workflows/ci.yml)
+[![Lint](https://github.com/RodrigoEspinosa/wt/actions/workflows/lint.yml/badge.svg)](https://github.com/RodrigoEspinosa/wt/actions/workflows/lint.yml)
+[![Release](https://img.shields.io/github/v/release/RodrigoEspinosa/wt)](https://github.com/RodrigoEspinosa/wt/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Git worktree manager powered by [fzf](https://github.com/junegunn/fzf).
 
 Quickly list, switch to, create, or remove git worktrees with fuzzy search.

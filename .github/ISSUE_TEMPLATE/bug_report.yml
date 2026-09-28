@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in wt isn't working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. cd into a repo with ...
+        2. run `wt ...`
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: wt version
+      description: Output of `wt --version`
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, shell (zsh/bash/fish), and `git --version` / `fzf --version`
+    validations:
+      required: true
