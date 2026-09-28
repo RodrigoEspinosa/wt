@@ -124,6 +124,18 @@ Because hooks leave untracked files behind, `wt -d` and `wt clean` force past **
 
 `wt` prints the selected worktree path to stdout. A subprocess can't change the parent shell's working directory, so `wt init <shell>` outputs a thin wrapper function that captures the path and `cd`s into it. It also provides tab completions for branches, worktrees, and options.
 
+### herdr
+
+Inside a [herdr](https://herdr.dev) pane, set `WT_HERDR=workspace` to have `wt` open each worktree as its own herdr workspace instead of `cd`-ing the current shell:
+
+```sh
+export WT_HERDR=workspace
+```
+
+- `wt <branch>`, `wt pr <n>`, and the picker open (or focus, if already open) a workspace for the worktree, grouped under the repo in herdr's sidebar.
+- `wt -d` and `wt clean` close that worktree's workspace after removing it. They leave the workspace you're running `wt` from open, and refuse to remove a worktree while an agent in its workspace is still working or waiting on input.
+- If herdr can't open the workspace, `wt` falls back to `cd`. Outside herdr (`HERDR_ENV` unset), the setting has no effect.
+
 ### Keyboard shortcuts (fzf picker)
 
 | Key             | Action                                            |
@@ -140,6 +152,7 @@ The preview pane on the right shows the working-tree status and the last 10 comm
 | ------------- | ---------------------------------- | ------------------------ |
 | `WT_BASE_DIR` | Parent directory for new worktrees | `<repo>/_worktrees` |
 | `WT_NO_HOOKS` | When set, skip `.wtconfig` copy/link/postCreate hooks | _(unset)_ |
+| `WT_HERDR`    | Set to `workspace` to open worktrees as [herdr](#herdr) workspaces | _(unset)_ |
 
 When `WT_BASE_DIR` is not set, `wt` uses the `baseDir` key from `.wtconfig` if present, otherwise a `_worktrees/` directory at the root of the repository. Branch names with slashes (e.g. `rec/my-branch`) are flattened to a single directory (`_worktrees/rec-my-branch`); the branch itself keeps its original name. If two branches would flatten to the same directory (e.g. `rec/foo` and `rec-foo`), `wt` refuses to create the second rather than dropping you in the wrong worktree.
 

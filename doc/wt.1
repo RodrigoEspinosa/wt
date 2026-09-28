@@ -254,6 +254,19 @@ When set to any value, skip the
 .B .wtconfig
 .RB ( copy / link / postCreate )
 hooks for the current invocation.
+.TP
+.B WT_HERDR
+When set to
+.B workspace
+and running inside a herdr pane
+.RB ( HERDR_ENV=1 ),
+switching opens (or focuses) the worktree as a herdr workspace instead of
+printing its path for the shell wrapper to
+.BR cd " into."
+Removing a worktree closes its herdr workspace, except the one
+.B wt
+runs in, and is refused while an agent in that workspace is working or
+waiting on input.
 .SH EXIT STATUS
 .TP
 .B 0
