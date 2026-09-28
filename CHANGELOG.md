@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- herdr integration: with `WT_HERDR=workspace` inside a herdr pane, switching to
+  a worktree (`wt <branch>`, `wt pr`, the picker) opens or focuses it as a herdr
+  workspace instead of `cd`-ing the current shell. `wt -d` and `wt clean` close
+  the removed worktree's workspace, and refuse to remove a worktree while an
+  agent in its workspace is still working or waiting on input.
+
 ## [0.6.1] - 2026-06-29
 
 ### Changed

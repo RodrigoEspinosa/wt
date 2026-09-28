@@ -89,6 +89,8 @@ Hooks:
 Environment:
   WT_BASE_DIR   Parent directory for worktrees (default: <repo>/_worktrees)
   WT_NO_HOOKS   When set, skip .wtconfig copy/link/postCreate hooks
+  WT_HERDR      Set to "workspace" to open worktrees as herdr workspaces
+                (only inside herdr) instead of cd'ing the current shell
 EOF
   exit 0
 }
@@ -402,6 +404,13 @@ remove_worktree() {
     die "worktree has uncommitted changes: $wt_path (stash/commit them, or run: git worktree remove --force \"$wt_path\")"
   fi
 
+  # Don't pull a checkout out from under a herdr agent that is still busy in it.
+  local ws
+  ws="$(herdr_workspace_for "$wt_path")"
+  if [ -n "$ws" ] && herdr_workspace_busy "$ws"; then
+    die "an agent is still working in herdr workspace $ws: $wt_path (let it finish, or close the workspace first)"
+  fi
+
   spin "Removing worktree $branch" git worktree remove --force "$wt_path"
   printf 'Removed worktree: %s (%s)\n' "$branch" "$wt_path" >&2
 
@@ -412,6 +421,71 @@ remove_worktree() {
       printf 'Kept branch %s (not fully merged; delete with: git branch -D %s)\n' "$branch" "$branch" >&2
     fi
   fi
+
+  [ -n "$ws" ] && herdr_close_workspace "$ws"
+  return 0
+}
+
+# --- herdr integration ------------------------------------------------------
+
+# True when running inside a herdr pane with WT_HERDR=workspace. Then switching
+# opens the worktree as a herdr workspace instead of cd'ing the current shell.
+herdr_enabled() {
+  [ "${WT_HERDR:-}" = "workspace" ] && [ "${HERDR_ENV:-}" = "1" ] &&
+    command -v herdr >/dev/null 2>&1
+}
+
+# Open (or focus, if already open) <path> as a herdr workspace. herdr requires
+# the primary checkout as --cwd, and opens its workspace too if needed.
+herdr_open() {
+  local wt_path="$1" label
+  label="$(git -C "$wt_path" symbolic-ref --quiet --short HEAD 2>/dev/null || basename "$wt_path")"
+  herdr worktree open --cwd "$(primary_worktree)" --path "$wt_path" \
+    --label "$label" --focus >/dev/null
+}
+
+# Print the id of the herdr workspace open on <path>, if any. Each entry of the
+# worktrees array is a flat JSON object, so splitting on braces isolates it.
+herdr_workspace_for() {
+  local wt_path="$1"
+  herdr_enabled || return 0
+  herdr worktree list --cwd "$(primary_worktree)" 2>/dev/null |
+    tr '{}' '\n' |
+    grep -F "\"path\":\"$wt_path\"" |
+    sed -n 's/.*"open_workspace_id":"\([^"]*\)".*/\1/p' |
+    head -n1 || true
+}
+
+# True when an agent in herdr workspace <id> is mid-turn or waiting on input.
+herdr_workspace_busy() {
+  herdr workspace get "$1" 2>/dev/null | grep -Eq '"agent_status":"(working|blocked)"'
+}
+
+# Close the herdr workspace <id> left behind by a removed worktree — unless it
+# is the one this shell runs in, since closing it would kill the caller.
+herdr_close_workspace() {
+  local ws="$1"
+  if [ "$ws" = "${HERDR_WORKSPACE_ID:-}" ]; then
+    printf 'Left herdr workspace %s open (it is the current one)\n' "$ws" >&2
+    return 0
+  fi
+  if herdr workspace close "$ws" >/dev/null 2>&1; then
+    printf 'Closed herdr workspace: %s\n' "$ws" >&2
+  else
+    printf '%s: could not close herdr workspace %s\n' "$PROG" "$ws" >&2
+  fi
+}
+
+# Hand a worktree path to the caller: open it in herdr when enabled, otherwise
+# print it for the shell wrapper to cd into. Falls back to printing if herdr fails.
+switch_to() {
+  local wt_path="$1"
+  [ -n "$wt_path" ] || return 0
+  if herdr_enabled; then
+    herdr_open "$wt_path" && return 0
+    printf '%s: herdr could not open %s; switching with cd instead\n' "$PROG" "$wt_path" >&2
+  fi
+  echo "$wt_path"
 }
 
 # --- pull requests ----------------------------------------------------------
@@ -714,7 +788,9 @@ main() {
     pr)
       shift
       ensure_git
-      pr_worktree "${1:-}"
+      local pr_path
+      pr_path="$(pr_worktree "${1:-}")" || return $?
+      switch_to "$pr_path"
       return 0
       ;;
     clean)
@@ -752,10 +828,14 @@ main() {
 
   case "$mode" in
     pick)
-      pick_worktree ""
+      local picked
+      picked="$(pick_worktree "")" || return $?
+      switch_to "$picked"
       ;;
     goto)
-      goto_worktree "$branch" "$start_point"
+      local target
+      target="$(goto_worktree "$branch" "$start_point")" || return $?
+      switch_to "$target"
       ;;
     delete)
       remove_worktree "$branch"
