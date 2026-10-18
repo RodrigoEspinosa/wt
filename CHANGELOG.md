@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workspace instead of `cd`-ing the current shell. `wt -d` and `wt clean` close
   the removed worktree's workspace, and refuse to remove a worktree while an
   agent in its workspace is still working or waiting on input.
+- Picker preview views: press `tab` to cycle the preview pane between an
+  overview (status and recent commits) and a diff view showing the branch's own
+  commits, diffstat, and uncommitted changes against the default branch.
+- With the herdr integration on, the picker and `wt -l` show each worktree's
+  agent state (working, blocked, done), and the overview preview names it.
+
+### Changed
+
+- The herdr integration now parses herdr's JSON with `jq`, which it requires.
+  Worktree paths containing characters that JSON escapes (quotes, backslashes)
+  no longer slip past the check that refuses to remove a worktree an agent is
+  still busy in.
 
 ## [0.6.1] - 2026-06-29
 

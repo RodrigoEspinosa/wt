@@ -53,8 +53,9 @@ Usage: $PROG [<branch> [<start-point>]]
 Git worktree manager powered by fzf.
 
 With no arguments, launches fzf to fuzzy-pick a worktree. In the picker,
-enter switches, ctrl-n creates a worktree from the typed name, and
-ctrl-d/del deletes the highlighted one.
+enter switches, ctrl-n creates a worktree from the typed name,
+ctrl-d/del deletes the highlighted one, and tab cycles the preview between
+an overview and the branch's diff against the default branch.
 With <branch>, switches to that worktree — creating it if it doesn't exist.
 A new branch starts at <start-point> if given (commit, branch, or tag).
 
@@ -232,18 +233,20 @@ list_worktrees() {
   '
 }
 
-# Decorate worktrees for display. Emits, per worktree, four tab-separated
-# fields: "<flags>\t<branch>\t<path>\t<ahead/behind>".
+# Decorate worktrees for display. Emits, per worktree, five tab-separated
+# fields: "<flags>\t<branch>\t<path>\t<ahead/behind>\t<agent>".
 #   flags  two markers — '*' for the worktree you're currently in, '!' if it
 #          has uncommitted changes (tracked or untracked).
 #   a/b    "↑N" commits ahead / "↓N" behind its upstream, when it has one.
+#   agent  the herdr agent's state in that worktree (see agent_label), if any.
 # The branch and path stay in their own clean fields so callers can parse them.
 # Decorate a single worktree (<branch> <path>) and print its four-field row.
 # Each call shells out to git status + rev-list, so annotate_worktrees runs many
-# of these in parallel. WT_CUR_TOP names the worktree we're currently in.
+# of these in parallel. WT_CUR_TOP names the worktree we're currently in, and
+# WT_AGENTS holds herdr_agent_statuses output, looked up here without herdr.
 annotate_one() {
   local branch="$1" path="$2"
-  local cur=" " dirty=" " ab="" counts behind ahead
+  local cur=" " dirty=" " ab="" agent="" counts behind ahead
   [ "$path" = "${WT_CUR_TOP:-}" ] && cur="*"
   [ -n "$(git -C "$path" status --porcelain 2>/dev/null || true)" ] && dirty="!"
 
@@ -255,7 +258,23 @@ annotate_one() {
     [ "${behind:-0}" != 0 ] && ab="$ab ↓$behind"
   fi
 
-  printf '%s%s\t%s\t%s\t%s\n' "$cur" "$dirty" "$branch" "$path" "$ab"
+  if [ -n "${WT_AGENTS:-}" ]; then
+    agent="$(printf '%s\n' "$WT_AGENTS" |
+      P="$path" awk -F'\t' '$1 == ENVIRON["P"] { print $2; exit }')"
+    agent="$(agent_label "$agent")"
+  fi
+
+  printf '%s%s\t%s\t%s\t%s\t%s\n' "$cur" "$dirty" "$branch" "$path" "$ab" "$agent"
+}
+
+# Short display form of a herdr agent_status. Idle and unknown states print
+# nothing so only agents worth a glance stand out.
+agent_label() {
+  case "$1" in
+    working) echo "● working" ;;
+    blocked) echo "◆ blocked" ;;
+    done)    echo "✓ done" ;;
+  esac
 }
 
 # Decorate every worktree for display, computing the per-worktree git lookups in
@@ -268,9 +287,10 @@ annotate_worktrees() {
   [ -z "$list" ] && return 0
 
   jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-  export WT_CUR_TOP
+  export WT_CUR_TOP WT_AGENTS
   WT_CUR_TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  export -f annotate_one
+  WT_AGENTS="$(herdr_agent_statuses)"
+  export -f annotate_one agent_label
 
   # Feed branch and path as separate NUL-delimited tokens (-0 -n2) so values with
   # spaces survive and xargs never reinterprets the tab/field separators.
@@ -280,23 +300,33 @@ annotate_worktrees() {
 
 pick_worktree() {
   local query="${1:-}"
-  local selection
+  local selection state self
 
   command -v fzf >/dev/null 2>&1 || die "fzf is required for the interactive picker (https://github.com/junegunn/fzf)"
 
+  # The preview runs this script again (wt _preview), so it needs an absolute
+  # path to it; tab cycles the view by rewriting the mode in the state file.
+  # Both travel as env vars so no quoting depends on the user's $SHELL.
+  state="$(mktemp)"
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+  # shellcheck disable=SC2016  # $WT_SELF expands in fzf's shell, not here
   selection=$(
     annotate_worktrees |
+    WT_SELF="$self" WT_PREVIEW_STATE="$state" \
     fzf --delimiter='\t' \
         --height='~50%' --layout=reverse \
-        --with-nth=1,2,4 \
+        --with-nth=1,2,4,5 \
         --prompt="worktree> " \
         --query="$query" \
         --print-query \
-        --header="enter: cd · ctrl-n: new · ctrl-d/del: delete" \
+        --header="enter: cd · ctrl-n: new · ctrl-d/del: delete · tab: preview" \
         --expect=ctrl-d,del,ctrl-n \
-        --preview="echo {3}; echo; git -C {3} -c color.status=always status -sb 2>/dev/null; echo; git -C {3} log --oneline -10 2>/dev/null || echo 'no commits'" \
+        --bind='tab:execute-silent("$WT_SELF" _preview-cycle)+refresh-preview' \
+        --preview='"$WT_SELF" _preview {3}' \
         --preview-window=right:60%:wrap
   ) || true
+  rm -f "$state"
 
   # With --print-query and --expect, fzf prints up to three lines: the typed
   # query, the pressed key (empty for plain enter), then the selected row.
@@ -462,6 +492,22 @@ herdr_workspace_busy() {
     jq -e '.result.workspace.agent_status | IN("working", "blocked")' >/dev/null 2>&1
 }
 
+# Print "path<TAB>agent_status" for each worktree of this repo that is open as
+# a herdr workspace. Display-only, so it quietly prints nothing without jq.
+herdr_agent_statuses() {
+  herdr_enabled || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local worktrees workspaces
+  worktrees="$(herdr worktree list --cwd "$(primary_worktree)" 2>/dev/null)" || return 0
+  workspaces="$(herdr workspace list 2>/dev/null)" || return 0
+  jq -rn --argjson wt "$worktrees" --argjson ws "$workspaces" '
+    ([$ws.result.workspaces[]? | {(.workspace_id): .agent_status}] | add // {}) as $status
+    | $wt.result.worktrees[]?
+    | select((.open_workspace_id // "") != "")
+    | [.path, ($status[.open_workspace_id] // "unknown")]
+    | @tsv' 2>/dev/null || true
+}
+
 # Close the herdr workspace <id> left behind by a removed worktree — unless it
 # is the one this shell runs in, since closing it would kill the caller.
 herdr_close_workspace() {
@@ -487,6 +533,91 @@ switch_to() {
     printf '%s: herdr could not open %s; switching with cd instead\n' "$PROG" "$wt_path" >&2
   fi
   echo "$wt_path"
+}
+
+# --- picker preview ---------------------------------------------------------
+
+# Views the picker's preview pane cycles through with tab, in order.
+PREVIEW_MODES=(overview diff)
+
+# The preview mode currently selected, kept in $WT_PREVIEW_STATE by the picker.
+preview_mode() {
+  local mode=""
+  [ -n "${WT_PREVIEW_STATE:-}" ] && mode="$(cat "$WT_PREVIEW_STATE" 2>/dev/null || true)"
+  echo "${mode:-${PREVIEW_MODES[0]}}"
+}
+
+# Advance $WT_PREVIEW_STATE to the next mode, wrapping around.
+preview_cycle() {
+  [ -n "${WT_PREVIEW_STATE:-}" ] || return 0
+  local cur next="${PREVIEW_MODES[0]}" i
+  cur="$(preview_mode)"
+  for i in "${!PREVIEW_MODES[@]}"; do
+    if [ "${PREVIEW_MODES[i]}" = "$cur" ]; then
+      next="${PREVIEW_MODES[(i + 1) % ${#PREVIEW_MODES[@]}]}"
+    fi
+  done
+  printf '%s\n' "$next" > "$WT_PREVIEW_STATE"
+}
+
+# Render the preview pane for <path>: a mode bar, then the selected view.
+preview_worktree() {
+  local wt_path="$1" mode m bar=""
+  mode="$(preview_mode)"
+  for m in "${PREVIEW_MODES[@]}"; do
+    if [ "$m" = "$mode" ]; then bar="$bar"$'\033[7m'" $m "$'\033[0m'" "; else bar="$bar $m  "; fi
+  done
+  printf '%s\n%s\n\n' "$bar" "$wt_path"
+
+  case "$mode" in
+    diff) preview_diff "$wt_path" ;;
+    *)    preview_overview "$wt_path" ;;
+  esac
+}
+
+# Overview: the herdr agent (if any), working-tree status, and recent commits.
+preview_overview() {
+  local wt_path="$1" status
+  status="$(herdr_agent_statuses | P="$wt_path" awk -F'\t' '$1 == ENVIRON["P"] { print $2; exit }')"
+  [ -n "$status" ] && printf 'herdr agent: %s\n\n' "$status"
+  git -C "$wt_path" -c color.status=always status -sb 2>/dev/null
+  echo
+  git -C "$wt_path" log --oneline --color=always -10 2>/dev/null || echo 'no commits'
+}
+
+# Diff: what this branch adds on top of the default branch — its own commits,
+# their combined diffstat, and any uncommitted changes. Compares against the
+# remote's copy of the default branch when there is one, since that is what a
+# pull request would target.
+preview_diff() {
+  local wt_path="$1" def base mb count uncommitted
+  def="$(default_branch)"
+  if [ -z "$def" ]; then
+    echo "no default branch to compare against"
+    return 0
+  fi
+  base="$def"
+  git -C "$wt_path" rev-parse --verify --quiet "refs/remotes/origin/$def" >/dev/null && base="origin/$def"
+
+  if ! mb="$(git -C "$wt_path" merge-base "$base" HEAD 2>/dev/null)"; then
+    echo "no history in common with $base"
+    return 0
+  fi
+
+  count="$(git -C "$wt_path" rev-list --count "$base..HEAD" 2>/dev/null || echo 0)"
+  if [ "$count" = 0 ]; then
+    printf 'no commits beyond %s\n' "$base"
+  else
+    printf '%s commit(s) not on %s:\n' "$count" "$base"
+    git -C "$wt_path" log --oneline --color=always "$base..HEAD" 2>/dev/null
+    echo
+    git -C "$wt_path" diff --stat --color=always "$mb" HEAD 2>/dev/null
+  fi
+
+  uncommitted="$(git -C "$wt_path" diff --stat --color=always HEAD 2>/dev/null || true)"
+  if [ -n "$uncommitted" ]; then
+    printf '\nuncommitted:\n%s\n' "$uncommitted"
+  fi
 }
 
 # --- pull requests ----------------------------------------------------------
@@ -800,6 +931,15 @@ main() {
       clean_worktrees "$@"
       return 0
       ;;
+    # Internal: called by the picker's fzf preview and its tab binding.
+    _preview)
+      preview_worktree "${2:-}"
+      return 0
+      ;;
+    _preview-cycle)
+      preview_cycle
+      return 0
+      ;;
   esac
 
   while getopts ":d:lhv" opt; do
@@ -842,8 +982,8 @@ main() {
       remove_worktree "$branch"
       ;;
     list)
-      annotate_worktrees | while IFS=$'\t' read -r flags branch path ab; do
-        printf '%s %-30s %s\n' "$flags" "$branch$ab" "$path"
+      annotate_worktrees | while IFS=$'\t' read -r flags branch path ab agent; do
+        printf '%s %-30s %s%s\n' "$flags" "$branch$ab" "$path" "${agent:+  $agent}"
       done
       ;;
   esac

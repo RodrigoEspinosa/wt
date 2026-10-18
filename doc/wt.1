@@ -44,8 +44,17 @@ for the worktree you are currently in,
 if it has uncommitted changes, and
 .RB ↑ N / ↓ N
 for commits ahead of / behind its upstream.
-The preview pane shows the working-tree status and the last 10 commits for the
-highlighted worktree.
+With
+.B WT_HERDR=workspace
+the row also shows the state of the herdr agent working in that worktree.
+The preview pane has two views, cycled with
+.BR Tab :
+.I overview
+shows the working-tree status and the last 10 commits;
+.I diff
+shows the commits not on the default branch (its
+.B origin
+copy when one exists), their diffstat, and any uncommitted changes.
 From the picker you can also press
 .B Ctrl-N
 to create a worktree named by the text you have typed.
@@ -231,6 +240,9 @@ Create (or switch to) a worktree named by the typed query.
 .TP
 .B "Ctrl-D, Del"
 Delete the highlighted worktree.
+.TP
+.B Tab
+Cycle the preview pane between the overview and diff views.
 .SH ENVIRONMENT
 .TP
 .B WT_BASE_DIR

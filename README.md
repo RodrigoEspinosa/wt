@@ -140,6 +140,7 @@ export WT_HERDR=workspace
 
 - `wt <branch>`, `wt pr <n>`, and the picker open (or focus, if already open) a workspace for the worktree, grouped under the repo in herdr's sidebar.
 - `wt -d` and `wt clean` close that worktree's workspace after removing it. They leave the workspace you're running `wt` from open, and refuse to remove a worktree while an agent in its workspace is still working or waiting on input.
+- The picker and `wt -l` show the state of each worktree's agent (`● working`, `◆ blocked`, `✓ done`); idle agents are left unmarked.
 - Requires [jq](https://jqlang.org) to look up workspaces.
 - If herdr can't open the workspace, `wt` falls back to `cd`. Outside herdr (`HERDR_ENV` unset), the setting has no effect.
 
@@ -150,8 +151,12 @@ export WT_HERDR=workspace
 | `Enter`         | Select worktree (prints path)                     |
 | `Ctrl-N`        | Create a worktree from the typed query            |
 | `Ctrl-D` / `Del`| Delete the highlighted worktree                   |
+| `Tab`           | Cycle the preview pane's view                     |
 
-The preview pane on the right shows the working-tree status and the last 10 commits for the highlighted worktree.
+The preview pane on the right has two views, switched with `Tab`:
+
+- **overview**: the working-tree status and the last 10 commits, plus the herdr agent's state when the [herdr integration](#herdr) is on.
+- **diff**: the commits on this branch that aren't on the default branch (`origin/<default>` when it exists), their combined diffstat, and any uncommitted changes.
 
 ## Environment variables
 
