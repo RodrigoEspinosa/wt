@@ -44,6 +44,7 @@ make uninstall               # from source
 
 - `git` 2.5 or newer (for worktree support)
 - [fzf](https://github.com/junegunn/fzf)
+- [jq](https://jqlang.org) (only for the [herdr](#herdr) integration)
 
 ## Quick start
 
@@ -139,6 +140,7 @@ export WT_HERDR=workspace
 
 - `wt <branch>`, `wt pr <n>`, and the picker open (or focus, if already open) a workspace for the worktree, grouped under the repo in herdr's sidebar.
 - `wt -d` and `wt clean` close that worktree's workspace after removing it. They leave the workspace you're running `wt` from open, and refuse to remove a worktree while an agent in its workspace is still working or waiting on input.
+- Requires [jq](https://jqlang.org) to look up workspaces.
 - If herdr can't open the workspace, `wt` falls back to `cd`. Outside herdr (`HERDR_ENV` unset), the setting has no effect.
 
 ### Keyboard shortcuts (fzf picker)

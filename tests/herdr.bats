@@ -101,6 +101,35 @@ teardown() {
   [ -z "$output" ]
 }
 
+@test "herdr_workspace_for matches paths with JSON-escaped characters" {
+  export STUB_PATH='/tmp/wt/say \"hi\"' STUB_WS="w8"
+  run herdr_workspace_for '/tmp/wt/say "hi"'
+  [ "$output" = "w8" ]
+}
+
+@test "herdr_workspace_for prints nothing when the workspace isn't open" {
+  export STUB_PATH="/tmp/wt/feat" STUB_WS=""
+  run herdr_workspace_for "/tmp/wt/feat"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "herdr_workspace_for dies when jq is missing" {
+  command() { [ "$1 $2" = "-v jq" ] && return 1; builtin command "$@"; }
+  run herdr_workspace_for "/tmp/wt/feat"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"jq is required"* ]]
+}
+
+@test "herdr_workspace_busy reports working and blocked agents as busy" {
+  STUB_STATUS=working run herdr_workspace_busy w7
+  [ "$status" -eq 0 ]
+  STUB_STATUS=blocked run herdr_workspace_busy w7
+  [ "$status" -eq 0 ]
+  STUB_STATUS=idle run herdr_workspace_busy w7
+  [ "$status" -ne 0 ]
+}
+
 @test "remove_worktree closes the herdr workspace for the removed worktree" {
   local wt_path
   wt_path="$(create_worktree feat)"

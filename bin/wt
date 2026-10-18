@@ -444,21 +444,22 @@ herdr_open() {
     --label "$label" --focus >/dev/null
 }
 
-# Print the id of the herdr workspace open on <path>, if any. Each entry of the
-# worktrees array is a flat JSON object, so splitting on braces isolates it.
+# Print the id of the herdr workspace open on <path>, if any. jq is required:
+# this lookup guards removal against busy agents, so it must not silently fail.
 herdr_workspace_for() {
   local wt_path="$1"
   herdr_enabled || return 0
+  command -v jq >/dev/null 2>&1 || die "jq is required for the herdr integration (https://jqlang.org), or unset WT_HERDR"
   herdr worktree list --cwd "$(primary_worktree)" 2>/dev/null |
-    tr '{}' '\n' |
-    grep -F "\"path\":\"$wt_path\"" |
-    sed -n 's/.*"open_workspace_id":"\([^"]*\)".*/\1/p' |
-    head -n1 || true
+    jq -r --arg path "$wt_path" \
+      'first(.result.worktrees[]? | select(.path == $path) | .open_workspace_id // empty)' \
+      2>/dev/null || true
 }
 
 # True when an agent in herdr workspace <id> is mid-turn or waiting on input.
 herdr_workspace_busy() {
-  herdr workspace get "$1" 2>/dev/null | grep -Eq '"agent_status":"(working|blocked)"'
+  herdr workspace get "$1" 2>/dev/null |
+    jq -e '.result.workspace.agent_status | IN("working", "blocked")' >/dev/null 2>&1
 }
 
 # Close the herdr workspace <id> left behind by a removed worktree — unless it
