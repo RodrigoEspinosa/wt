@@ -71,8 +71,9 @@ wt                    # Interactive fuzzy picker
 wt my-feature         # Switch to branch worktree (creates if needed)
 wt my-feature main    # Create the branch from main if it doesn't exist
 wt pr 123             # Check out GitHub PR #123 in a worktree
-wt clean              # Pick and remove merged/stale worktrees
-wt clean --prune --yes # Prune remotes, then remove every candidate non-interactively
+wt clean              # Review worktrees (size, age, safety) and pick ones to remove
+wt clean --list       # Just print that report
+wt clean --prune --yes # Prune remotes, then remove every safe worktree non-interactively
 wt -d my-feature      # Remove a worktree
 wt -l                 # List worktrees (marks current `*`, dirty `!`, ahead/behind)
 ```
@@ -88,7 +89,7 @@ worktree, <kbd>ctrl-n</kbd> creates a worktree from whatever you've typed, and
 | `wt`              | Launch fzf to fuzzy-pick a worktree                |
 | `wt <branch> [<start-point>]` | Switch to the worktree for `<branch>`, creating it if it doesn't exist. A new branch starts at `<start-point>` (commit, branch, or tag) if given |
 | `wt pr <number>`  | Fetch a GitHub pull request and check it out in a worktree |
-| `wt clean [--prune] [--yes]` | Multi-select and remove worktrees whose branch is merged or whose upstream is gone. `--prune` fetches/prunes remotes first; `--yes` removes all candidates without prompting |
+| `wt clean [--list] [--prune] [--yes]` | Review every worktree's disk usage, last activity, and removal safety, and multi-select which to remove. `--list` prints the report only; `--prune` fetches/prunes remotes first; `--yes` removes every safe worktree without prompting |
 | `wt -d <branch>`  | Remove the worktree for `<branch>`, deleting the local branch too if it is fully merged |
 | `wt -l`           | List all worktrees, marking the current one (`*`), uncommitted changes (`!`), and ahead/behind upstream |
 | `wt init <shell>` | Print shell integration for bash, zsh, or fish     |
@@ -121,10 +122,32 @@ Because hooks leave untracked files behind, `wt -d` and `wt clean` force past **
 
 ### `wt clean`
 
-`wt clean` finds worktrees whose branch is fully merged into the default branch or whose upstream has been deleted (`[gone]`), and offers them in an fzf multi-select list (`Tab` to mark, `Enter` to remove). Without fzf it prints the candidates so you can remove them with `wt -d`.
+Agents can leave a lot of worktrees behind. `wt clean` lists every worktree except the primary checkout, with its disk usage, time since the last git activity in it, and a verdict on whether it can be removed. Safe ones come first, largest first:
 
-- `--prune` runs `git fetch --all --prune` first, so branches whose upstream was deleted on the remote are detected as `[gone]`.
-- `--yes` (alias `--all`) skips the picker and removes every candidate — handy for scripts and CI.
+```
+4 worktree(s) · 1.3G on disk · 2 safe to remove (1.2G)
+safe        1.2G   3d  agent/fix-login               merged into main
+safe           -    -  agent/old-spike               directory already deleted
+idle         48M   5h  agent/refactor-api            not merged (branch kept)
+dirty        52M  12m  agent/new-parser              3 uncommitted change(s)
+```
+
+| Verdict     | Meaning | Removable |
+| ----------- | ------- | --------- |
+| `safe`      | Merged into the default branch or upstream gone, with nothing uncommitted; or the directory is already deleted | yes |
+| `idle`      | Not merged, nothing uncommitted. The worktree goes; the branch and its commits stay | yes |
+| `untracked` | Has untracked (not gitignored) files that removal would delete | yes |
+| `dirty`     | Uncommitted changes to tracked files | no |
+| `orphan`    | Detached HEAD with commits no branch or tag holds | no |
+| `locked`    | Locked with `git worktree lock` | no |
+| `busy`      | A [herdr](#herdr) agent is working or waiting on input in it | no |
+| `current`   | The worktree you're running `wt` from | no |
+
+In the picker, `Tab` marks a worktree and `Ctrl-A` marks everything shown, so type `safe` then `Ctrl-A` to select every safe one. `Ctrl-/` switches the preview between the overview and diff views. `Enter` removes the marked worktrees and skips any that can't be removed. Gitignored files (`node_modules`, build output) never block removal, and a branch is deleted only when it's fully merged.
+
+- `--list` prints the report without the picker (this is also what you get without fzf).
+- `--prune` runs `git fetch --all --prune` first, so branches whose upstream was deleted on the remote are detected as gone.
+- `--yes` (alias `--all`) skips the picker and removes every `safe` worktree. Handy for scripts and CI.
 
 ### Shell integration
 

@@ -45,7 +45,7 @@ usage() {
   cat <<EOF
 Usage: $PROG [<branch> [<start-point>]]
        $PROG pr <number>
-       $PROG clean [--prune] [--yes]
+       $PROG clean [--list] [--prune] [--yes]
        $PROG -d <branch>
        $PROG -l
        $PROG init <shell>
@@ -61,9 +61,10 @@ A new branch starts at <start-point> if given (commit, branch, or tag).
 
 Commands:
   pr <number>   Check out a GitHub pull request in a new worktree
-  clean         Pick and remove merged or stale worktrees (fzf multi-select)
-                --prune fetches/prunes remotes first; --yes removes all
-                candidates without prompting
+  clean         Review every worktree with its disk usage, last activity, and
+                whether it is safe to remove, then pick which to remove
+                (fzf multi-select). --list prints the report only; --prune
+                fetches/prunes remotes first; --yes removes every safe one
   init <shell>  Print shell integration (bash, zsh, fish)
 
 Options:
@@ -242,13 +243,14 @@ list_worktrees() {
 # The branch and path stay in their own clean fields so callers can parse them.
 # Decorate a single worktree (<branch> <path>) and print its four-field row.
 # Each call shells out to git status + rev-list, so annotate_worktrees runs many
-# of these in parallel. WT_CUR_TOP names the worktree we're currently in, and
+# of these in parallel. --no-optional-locks keeps git status from rewriting the
+# index, which would collide with agents running git in that worktree. WT_CUR_TOP names the worktree we're currently in, and
 # WT_AGENTS holds herdr_agent_statuses output, looked up here without herdr.
 annotate_one() {
   local branch="$1" path="$2"
   local cur=" " dirty=" " ab="" agent="" counts behind ahead
   [ "$path" = "${WT_CUR_TOP:-}" ] && cur="*"
-  [ -n "$(git -C "$path" status --porcelain 2>/dev/null || true)" ] && dirty="!"
+  [ -n "$(git --no-optional-locks -C "$path" status --porcelain 2>/dev/null || true)" ] && dirty="!"
 
   counts="$(git -C "$path" rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null || true)"
   if [ -n "$counts" ]; then
@@ -300,21 +302,14 @@ annotate_worktrees() {
 
 pick_worktree() {
   local query="${1:-}"
-  local selection state self
+  local selection
 
   command -v fzf >/dev/null 2>&1 || die "fzf is required for the interactive picker (https://github.com/junegunn/fzf)"
-
-  # The preview runs this script again (wt _preview), so it needs an absolute
-  # path to it; tab cycles the view by rewriting the mode in the state file.
-  # Both travel as env vars so no quoting depends on the user's $SHELL.
-  state="$(mktemp)"
-  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
   # shellcheck disable=SC2016  # $WT_SELF expands in fzf's shell, not here
   selection=$(
     annotate_worktrees |
-    WT_SELF="$self" WT_PREVIEW_STATE="$state" \
-    fzf --delimiter='\t' \
+    fzf_with_preview --delimiter='\t' \
         --height='~50%' --layout=reverse \
         --with-nth=1,2,4,5 \
         --prompt="worktree> " \
@@ -322,11 +317,8 @@ pick_worktree() {
         --print-query \
         --header="enter: cd · ctrl-n: new · ctrl-d/del: delete · tab: preview" \
         --expect=ctrl-d,del,ctrl-n \
-        --bind='tab:execute-silent("$WT_SELF" _preview-cycle)+refresh-preview' \
-        --preview='"$WT_SELF" _preview {3}' \
-        --preview-window=right:60%:wrap
+        --bind='tab:execute-silent("$WT_SELF" _preview-cycle)+refresh-preview'
   ) || true
-  rm -f "$state"
 
   # With --print-query and --expect, fzf prints up to three lines: the typed
   # query, the pressed key (empty for plain enter), then the selected row.
@@ -425,6 +417,15 @@ remove_worktree() {
     die "no worktree found for branch: $branch"
   fi
 
+  remove_worktree_at "$wt_path" "$branch"
+}
+
+# Remove the worktree at <path>, checked out on <branch> ("(detached)" if
+# none), then delete the branch if it is fully merged. A worktree whose
+# directory is already gone is pruned from git's records instead.
+remove_worktree_at() {
+  local wt_path="$1" branch="$2"
+
   # Refuse to remove a worktree with uncommitted *tracked* changes. Untracked
   # files are expected (postCreate hooks build node_modules etc.), so we force
   # past those — but never past unsaved edits to tracked files.
@@ -441,10 +442,15 @@ remove_worktree() {
     die "an agent is still working in herdr workspace $ws: $wt_path (let it finish, or close the workspace first)"
   fi
 
-  spin "Removing worktree $branch" git worktree remove --force "$wt_path"
+  if [ -d "$wt_path" ]; then
+    spin "Removing worktree $branch" git worktree remove --force "$wt_path"
+  else
+    git worktree prune
+  fi
   printf 'Removed worktree: %s (%s)\n' "$branch" "$wt_path" >&2
 
-  if [ "$branch" != "(detached)" ]; then
+  # Never delete the default branch, even when it is "merged" into HEAD.
+  if [ "$branch" != "(detached)" ] && [ "$branch" != "$(default_branch)" ]; then
     if git branch -d "$branch" >/dev/null 2>&1; then
       printf 'Deleted branch: %s\n' "$branch" >&2
     else
@@ -536,6 +542,24 @@ switch_to() {
 }
 
 # --- picker preview ---------------------------------------------------------
+
+# Run fzf with "$@" plus the worktree preview pane, for rows whose third
+# tab-separated field is the worktree path. ctrl-/ cycles the preview view.
+# The preview runs this script again (wt _preview), so it gets an absolute
+# path to it; the view lives in a state file that _preview-cycle rewrites. Both
+# travel as env vars so no quoting depends on the user's $SHELL.
+fzf_with_preview() {
+  local state self rc=0
+  state="$(mktemp)"
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  # shellcheck disable=SC2016  # $WT_SELF expands in fzf's shell, not here
+  WT_SELF="$self" WT_PREVIEW_STATE="$state" fzf "$@" \
+    --preview='"$WT_SELF" _preview {3}' \
+    --preview-window=right:60%:wrap \
+    --bind='ctrl-/:execute-silent("$WT_SELF" _preview-cycle)+refresh-preview' || rc=$?
+  rm -f "$state"
+  return $rc
+}
 
 # Views the picker's preview pane cycles through with tab, in order.
 PREVIEW_MODES=(overview diff)
@@ -681,42 +705,183 @@ default_branch() {
   git -C "$(primary_worktree)" symbolic-ref --quiet --short HEAD 2>/dev/null || true
 }
 
-# Print "branch<TAB>path<TAB>reason" for each worktree branch that is merged
-# into the default branch or whose upstream has been deleted ("gone").
-clean_candidates() {
-  local def merged_list gone_list cur_top
-  def="$(default_branch)"
-  merged_list="$(git branch --merged "$def" --format='%(refname:short)' 2>/dev/null || true)"
-  gone_list="$(git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads \
-                 | awk '$2 == "[gone]" { print $1 }')"
-  cur_top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+# Classify one worktree for wt clean and print a raw row of eight tab-separated
+# fields: "<rank>\t<kb>\t<verdict>\t<size>\t<age>\t<branch>\t<path>\t<detail>".
+# rank orders the verdicts from safest to riskiest; kb is the disk usage used to
+# sort within a verdict. Verdicts:
+#   safe       merged into the default branch or upstream gone, nothing
+#              uncommitted — the worktree and (if merged) its branch go; or
+#              its directory is already deleted and only git's record remains
+#   idle       not merged, nothing uncommitted — the worktree goes, the branch
+#              and its commits stay
+#   untracked  untracked files that removal would delete
+#   dirty      uncommitted changes to tracked files (refused)
+#   orphan     detached HEAD with commits no ref points to (refused)
+#   locked     locked with git worktree lock (refused)
+#   busy       a herdr agent is working or waiting on input in it (refused)
+#   current    the worktree you are in (refused)
+# Runs in parallel under xargs, so its context comes from WT_* variables set by
+# clean_report.
+clean_row() {
+  local branch="$1" path="$2"
+  local verdict="" detail="" rank kb=0 size="-" age="-" stamp agent tracked untracked
 
-  list_worktrees | while IFS=$'\t' read -r branch path; do
-    [ "$branch" = "(detached)" ] && continue
-    [ "$branch" = "$def" ] && continue
-    [ "$path" = "$cur_top" ] && continue
+  if [ ! -d "$path" ]; then
+    verdict="safe"; detail="directory already deleted"
+  else
+    kb="$(du -sk "$path" 2>/dev/null | cut -f1)"
+    size="$(human_size "${kb:-0}")"
+    # Last git activity in this worktree: its HEAD reflog, else the HEAD commit.
+    stamp="$(git -C "$path" log -g -1 --format=%ct HEAD 2>/dev/null ||
+             git -C "$path" log -1 --format=%ct 2>/dev/null || true)"
+    [ -n "$stamp" ] && age="$(human_age $((WT_NOW - stamp)))"
 
-    local reason=""
-    if printf '%s\n' "$merged_list" | grep -qx "$branch"; then
-      reason="merged into $def"
-    fi
-    if printf '%s\n' "$gone_list" | grep -qx "$branch"; then
-      if [ -n "$reason" ]; then reason="$reason, upstream gone"; else reason="upstream gone"; fi
-    fi
+    agent="$(printf '%s\n' "${WT_AGENTS:-}" |
+      P="$path" awk -F'\t' '$1 == ENVIRON["P"] { print $2; exit }')"
+    tracked="$(git --no-optional-locks -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')"
+    untracked="$(git -C "$path" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')"
 
-    if [ -n "$reason" ]; then
-      printf '%s\t%s\t%s\n' "$branch" "$path" "$reason"
+    if [ "$path" = "${WT_CUR_TOP:-}" ]; then
+      verdict="current"; detail="you are here"
+    elif [ "$agent" = working ] || [ "$agent" = blocked ]; then
+      verdict="busy"; detail="herdr agent $agent"
+    elif printf '%s\n' "${WT_LOCKED:-}" | grep -qxF -- "$path"; then
+      verdict="locked"; detail="unlock with: git worktree unlock"
+    elif [ "${tracked:-0}" != 0 ]; then
+      verdict="dirty"; detail="$tracked uncommitted change(s)"
+    elif [ "$branch" = "(detached)" ] &&
+         [ -z "$(git -C "$path" for-each-ref --contains HEAD --count=1 --format=x 2>/dev/null)" ]; then
+      verdict="orphan"; detail="detached HEAD has commits on no branch"
+    elif [ "${untracked:-0}" != 0 ]; then
+      verdict="untracked"; detail="$untracked untracked file(s) would be deleted"
     fi
+  fi
+
+  if [ -z "$verdict" ]; then
+    local merged="" gone=""
+    printf '%s\n' "${WT_MERGED:-}" | grep -qxF -- "$branch" && merged=1
+    printf '%s\n' "${WT_GONE:-}" | grep -qxF -- "$branch" && gone=1
+    if [ "$branch" = "${WT_DEF:-}" ]; then
+      verdict="idle"; detail="default branch (kept)"
+    elif [ -n "$merged" ] && [ -n "$gone" ]; then
+      verdict="safe"; detail="merged into $WT_DEF, upstream gone"
+    elif [ -n "$merged" ]; then
+      verdict="safe"; detail="merged into $WT_DEF"
+    elif [ -n "$gone" ]; then
+      verdict="safe"; detail="upstream gone (branch kept unless merged)"
+    elif [ "$branch" = "(detached)" ]; then
+      verdict="idle"; detail="detached HEAD"
+    else
+      verdict="idle"; detail="not merged (branch kept)"
+    fi
+  fi
+
+  case "$verdict" in
+    safe)      rank=0 ;;
+    idle)      rank=1 ;;
+    untracked) rank=2 ;;
+    *)         rank=3 ;;
+  esac
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$rank" "${kb:-0}" "$verdict" "$size" "$age" "$branch" "$path" "$detail"
+}
+
+# Format a size in kilobytes for display: 812K, 34M, 1.2G.
+human_size() {
+  awk -v kb="$1" 'BEGIN {
+    if (kb >= 1048576) printf "%.1fG\n", kb / 1048576
+    else if (kb >= 1024) printf "%dM\n", kb / 1024
+    else printf "%dK\n", kb
+  }'
+}
+
+# Format an age in seconds for display: 12m, 5h, 3d.
+human_age() {
+  local s="$1"
+  if [ "$s" -lt 3600 ]; then echo "$((s / 60))m"
+  elif [ "$s" -lt 86400 ]; then echo "$((s / 3600))h"
+  else echo "$((s / 86400))d"
+  fi
+}
+
+# Classify every worktree except the primary one (see clean_row), measuring
+# them in parallel, and print the raw rows sorted safest-first, then by size.
+clean_report() {
+  local list primary jobs
+  list="$(list_worktrees)"
+  primary="$(primary_worktree)"
+
+  export WT_CUR_TOP WT_AGENTS WT_DEF WT_MERGED WT_GONE WT_LOCKED WT_NOW
+  WT_CUR_TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  WT_AGENTS="$(herdr_agent_statuses)"
+  WT_DEF="$(default_branch)"
+  WT_MERGED="$(git branch --merged "$WT_DEF" --format='%(refname:short)' 2>/dev/null || true)"
+  WT_GONE="$(git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads |
+               awk '$2 == "[gone]" { print $1 }')"
+  WT_LOCKED="$(git worktree list --porcelain |
+                 awk '/^worktree / { path = substr($0, 10) } /^locked/ { print path }')"
+  WT_NOW="$(date +%s)"
+  export -f clean_row human_size human_age
+
+  jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+  printf '%s\n' "$list" |
+    P="$primary" awk -F'\t' '$2 != ENVIRON["P"]' |
+    tr '\t\n' '\0\0' |
+    xargs -0 -n2 -P "$jobs" bash -c 'clean_row "$@"' _ |
+    sort -t$'\t' -k1,1n -k2,2nr
+}
+
+# clean_report into <file>, so spin can run it while stdout stays free.
+clean_report_to() {
+  clean_report > "$1"
+}
+
+# Print a one-line summary of raw clean_report rows: how many worktrees, their
+# total size, and how much the safe ones would free.
+clean_summary() {
+  awk -F'\t' '
+    function h(kb) {
+      if (kb >= 1048576) return sprintf("%.1fG", kb / 1048576)
+      if (kb >= 1024) return sprintf("%dM", kb / 1024)
+      return sprintf("%dK", kb)
+    }
+    { n++; total += $2 }
+    $3 == "safe" { s++; safe += $2 }
+    END { printf "%d worktree(s) · %s on disk · %d safe to remove (%s)\n", n, h(total), s, h(safe) }'
+}
+
+# Turn raw clean_report rows into aligned display rows for fzf, keeping the
+# branch, path, and verdict in their own fields after the display text.
+clean_display() {
+  while IFS=$'\t' read -r _ _ verdict size age branch path detail; do
+    printf '%-9s %6s %4s  %-32s %s\t%s\t%s\t%s\n' \
+      "$verdict" "$size" "$age" "$branch" "$detail" "$branch" "$path" "$verdict"
+  done
+}
+
+# Remove the worktrees in raw rows on stdin, skipping verdicts that must not be
+# removed. Each removal runs in a subshell so one failure (die) doesn't stop
+# the rest.
+clean_remove() {
+  while IFS=$'\t' read -r branch path verdict; do
+    [ -z "$path" ] && continue
+    case "$verdict" in
+      safe|idle|untracked)
+        ( remove_worktree_at "$path" "$branch" ) || true ;;
+      *)
+        printf '%s: skipped %s (%s)\n' "$PROG" "$branch" "$verdict" >&2 ;;
+    esac
   done
 }
 
 clean_worktrees() {
-  local do_prune="" assume_yes=""
+  local do_prune="" assume_yes="" list_only=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --prune)            do_prune=1 ;;
       -y|--yes|--all)     assume_yes=1 ;;
-      *)                  die "unknown clean option: $1 (use --prune, --yes)" ;;
+      -l|--list)          list_only=1 ;;
+      *)                  die "unknown clean option: $1 (use --list, --prune, --yes)" ;;
     esac
     shift
   done
@@ -727,46 +892,47 @@ clean_worktrees() {
     git fetch --all --prune -q >&2 || printf '%s: prune fetch failed (continuing)\n' "$PROG" >&2
   fi
 
-  local candidates
-  candidates="$(clean_candidates)"
-
-  if [ -z "$candidates" ]; then
-    printf '%s: nothing to clean — no merged or stale worktrees\n' "$PROG" >&2
+  local rows
+  rows="$(mktemp)"
+  spin "Measuring worktrees" clean_report_to "$rows"
+  if [ ! -s "$rows" ]; then
+    rm -f "$rows"
+    printf '%s: nothing to clean — no worktrees besides the primary one\n' "$PROG" >&2
     return 0
   fi
 
-  # --yes removes every candidate without prompting (handy for scripts/CI).
+  local summary
+  summary="$(clean_summary < "$rows")"
+
+  # --yes removes every safe worktree without prompting (handy for scripts).
   if [ -n "$assume_yes" ]; then
-    printf '%s\n' "$candidates" | while IFS=$'\t' read -r branch _ _; do
-      [ -z "$branch" ] && continue
-      remove_worktree "$branch" || true
-    done
+    awk -F'\t' '$3 == "safe" { print $6 "\t" $7 "\t" $3 }' "$rows" | clean_remove
+    rm -f "$rows"
     return 0
   fi
 
-  if ! command -v fzf >/dev/null 2>&1; then
-    printf '%s: merged or stale worktrees (install fzf to select, or use -d):\n' "$PROG" >&2
-    printf '%s\n' "$candidates" | awk -F'\t' '{ printf "  %-30s %s\n", $1, $3 }' >&2
+  if [ -n "$list_only" ] || ! command -v fzf >/dev/null 2>&1; then
+    printf '%s\n' "$summary"
+    clean_display < "$rows" | cut -f1
+    [ -z "$list_only" ] && printf '%s: install fzf to pick interactively, or use --yes / -d\n' "$PROG" >&2
+    rm -f "$rows"
     return 0
   fi
 
   local selection
   selection=$(
-    printf '%s\n' "$candidates" |
-    fzf --multi --delimiter='\t' --with-nth=1,3 \
-        --height='~50%' --layout=reverse \
+    clean_display < "$rows" |
+    fzf_with_preview --multi --delimiter='\t' --with-nth=1 \
+        --height='~80%' --layout=reverse \
         --prompt="clean> " \
-        --header="tab: mark · enter: remove · esc: cancel" \
-        --preview="echo {2}; echo; git -C {2} log --oneline -10 2>/dev/null || echo 'no commits'" \
-        --preview-window=right:60%:wrap
-  ) || return 0
+        --header="$summary
+tab: mark · ctrl-a: mark all shown (type 'safe' to filter) · enter: remove · ctrl-/: preview" \
+        --bind='ctrl-a:select-all'
+  ) || true
+  rm -f "$rows"
 
   [ -z "$selection" ] && return 0
-
-  printf '%s\n' "$selection" | while IFS=$'\t' read -r branch _ _; do
-    [ -z "$branch" ] && continue
-    remove_worktree "$branch" || true
-  done
+  printf '%s\n' "$selection" | cut -f2- | clean_remove
 }
 
 # --- shell integration ------------------------------------------------------
@@ -813,7 +979,9 @@ _wt() {
       ;;
   esac
 
-  if [[ "$cur" == -* ]]; then
+  if [[ "${COMP_WORDS[1]}" == clean ]]; then
+    COMPREPLY=($(compgen -W "--list --prune --yes" -- "$cur"))
+  elif [[ "$cur" == -* ]]; then
     COMPREPLY=($(compgen -W "-d -l -h -v" -- "$cur"))
   else
     local branches
@@ -849,6 +1017,9 @@ _wt() {
     branches)
       if [[ "${words[2]}" == "init" ]]; then
         _describe 'shell' shells
+      elif [[ "${words[2]}" == "clean" ]]; then
+        _values 'clean option' '--list[print the report only]' \
+          '--prune[fetch and prune remotes first]' '--yes[remove every safe worktree]'
       else
         branches=(${(f)"$(git branch --format='%(refname:short)' 2>/dev/null)"})
         _describe 'branch' branches
@@ -889,8 +1060,11 @@ complete -c wt -s v -d 'Show version'
 
 # Subcommands
 complete -c wt -n "__fish_use_subcommand" -a "pr" -d 'Check out a GitHub PR'
-complete -c wt -n "__fish_use_subcommand" -a "clean" -d 'Remove merged/stale worktrees'
+complete -c wt -n "__fish_use_subcommand" -a "clean" -d 'Review and remove worktrees'
 complete -c wt -n "__fish_seen_subcommand_from init" -x -a "bash zsh fish"
+complete -c wt -n "__fish_seen_subcommand_from clean" -l list -d 'Print the report only'
+complete -c wt -n "__fish_seen_subcommand_from clean" -l prune -d 'Fetch and prune remotes first'
+complete -c wt -n "__fish_seen_subcommand_from clean" -l yes -d 'Remove every safe worktree'
 
 # Default: branch names
 complete -c wt -n "not __fish_seen_subcommand_from init pr clean; and not __fish_is_switch" -x -a '(git branch --format="%(refname:short)" 2>/dev/null)'

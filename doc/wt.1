@@ -84,20 +84,37 @@ otherwise it falls back to
 .IR pr- number .
 .TP
 .B clean
-Find worktrees whose branch is fully merged into the default branch or
-whose upstream branch has been deleted
-.RB ( [gone] ),
-and offer them for removal in an
+List every worktree except the primary one with its disk usage, the time
+since the last git activity in it, and a verdict, safest first:
+.B safe
+(merged into the default branch or upstream gone, with nothing uncommitted;
+or its directory is already deleted),
+.B idle
+(not merged, nothing uncommitted; the branch is kept),
+.B untracked
+(untracked files would be deleted),
+or one of the refused verdicts
+.BR dirty ,
+.BR orphan ,
+.BR locked ,
+.BR busy " (a herdr agent is working in it), and"
+.BR current .
+Pick which to remove in an
 .B fzf
 multi-select list
 .RB ( Tab
 to mark,
+.B Ctrl-A
+to mark all shown,
+.B Ctrl-/
+to switch the preview,
 .B Enter
-to remove).
-Without
+to remove); refused worktrees are skipped.
+With
+.BR \-\-list ,
+or without
 .BR fzf ,
-the candidates are printed for removal with
-.BR "wt \-d" .
+the report is printed instead.
 With
 .BR \-\-prune ,
 .B "git fetch \-\-all \-\-prune"
@@ -107,8 +124,9 @@ With
 .B \-\-yes
 (alias
 .BR \-\-all ),
-every candidate is removed without the interactive prompt — useful in
-scripts.
+every
+.B safe
+worktree is removed without the interactive prompt — useful in scripts.
 .TP
 .BI "init " shell
 Print shell integration code for
@@ -325,7 +343,7 @@ $ wt pr 123
 .fi
 .RE
 .PP
-Remove all merged or stale worktrees interactively:
+Review worktrees and pick which to remove:
 .PP
 .RS
 .nf
