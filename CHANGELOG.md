@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-19
+
 ### Added
 
 - herdr integration: with `WT_HERDR=workspace` inside a herdr pane, switching to
@@ -190,6 +192,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extracted a common worktree path lookup function (#1).
 - Expanded the README with a demo gif, uninstall, and requirements.
 
+[Unreleased]: https://github.com/RodrigoEspinosa/wt/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/RodrigoEspinosa/wt/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/RodrigoEspinosa/wt/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/RodrigoEspinosa/wt/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/RodrigoEspinosa/wt/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/RodrigoEspinosa/wt/compare/v0.4.2...v0.5.0
