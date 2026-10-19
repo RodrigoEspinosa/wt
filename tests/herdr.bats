@@ -33,6 +33,10 @@ case "$1 $2" in
   "workspace get")
     printf '{"result":{"workspace":{"agent_status":"%s","workspace_id":"%s"}}}\n' "${STUB_STATUS:-idle}" "$3"
     ;;
+  "workspace list")
+    printf '{"result":{"workspaces":[{"agent_status":"%s","workspace_id":"%s"}]}}\n' \
+      "${STUB_STATUS:-idle}" "${STUB_WS:-}"
+    ;;
   "workspace close") ;;
 esac
 STUB
@@ -99,6 +103,68 @@ teardown() {
   [ "$output" = "w7" ]
   run herdr_workspace_for "/tmp/wt/fe"
   [ -z "$output" ]
+}
+
+@test "herdr_workspace_for matches paths with JSON-escaped characters" {
+  export STUB_PATH='/tmp/wt/say \"hi\"' STUB_WS="w8"
+  run herdr_workspace_for '/tmp/wt/say "hi"'
+  [ "$output" = "w8" ]
+}
+
+@test "herdr_workspace_for prints nothing when the workspace isn't open" {
+  export STUB_PATH="/tmp/wt/feat" STUB_WS=""
+  run herdr_workspace_for "/tmp/wt/feat"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "herdr_workspace_for dies when jq is missing" {
+  command() { [ "$1 $2" = "-v jq" ] && return 1; builtin command "$@"; }
+  run herdr_workspace_for "/tmp/wt/feat"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"jq is required"* ]]
+}
+
+@test "herdr_workspace_busy reports working and blocked agents as busy" {
+  STUB_STATUS=working run herdr_workspace_busy w7
+  [ "$status" -eq 0 ]
+  STUB_STATUS=blocked run herdr_workspace_busy w7
+  [ "$status" -eq 0 ]
+  STUB_STATUS=idle run herdr_workspace_busy w7
+  [ "$status" -ne 0 ]
+}
+
+@test "herdr_agent_statuses pairs each open worktree with its agent status" {
+  export STUB_PATH="/tmp/wt/feat" STUB_WS="w7" STUB_STATUS="blocked"
+  run herdr_agent_statuses
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '/tmp/wt/feat\tblocked')" ]
+}
+
+@test "herdr_agent_statuses skips worktrees with no open workspace" {
+  export STUB_PATH="/tmp/wt/feat" STUB_WS=""
+  run herdr_agent_statuses
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "herdr_agent_statuses prints nothing (and doesn't fail) without jq" {
+  command() { [ "$1 $2" = "-v jq" ] && return 1; builtin command "$@"; }
+  export STUB_PATH="/tmp/wt/feat" STUB_WS="w7"
+  run herdr_agent_statuses
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "annotate_worktrees shows the herdr agent next to its worktree" {
+  local wt_path
+  create_worktree feat > /dev/null
+  wt_path="$(get_worktree_path feat)"
+  export STUB_PATH="$wt_path" STUB_WS="w7" STUB_STATUS="working"
+
+  run annotate_worktrees
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -q "$(printf '\tfeat\t%s\t\t● working$' "$wt_path")"
 }
 
 @test "remove_worktree closes the herdr workspace for the removed worktree" {

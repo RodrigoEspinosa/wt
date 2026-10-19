@@ -14,6 +14,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workspace instead of `cd`-ing the current shell. `wt -d` and `wt clean` close
   the removed worktree's workspace, and refuse to remove a worktree while an
   agent in its workspace is still working or waiting on input.
+- Picker preview views: press `tab` to cycle the preview pane between an
+  overview (status and recent commits) and a diff view showing the branch's own
+  commits, diffstat, and uncommitted changes against the default branch.
+- With the herdr integration on, the picker and `wt -l` show each worktree's
+  agent state (working, blocked, done), and the overview preview names it.
+
+- `wt clean` now reviews every worktree, not just merged ones: each row shows
+  its disk usage, time since the last git activity, and a verdict (`safe`,
+  `idle`, `untracked`, or a refused `dirty`, `orphan`, `locked`, `busy`,
+  `current`), sorted safest and largest first, with a summary of how much the
+  safe ones would free. `ctrl-a` marks every row shown, and the preview gains
+  the overview/diff views (`ctrl-/`). `wt clean --list` prints the report
+  without the picker. Worktrees whose directory was deleted by hand are pruned.
+
+### Changed
+
+- `wt clean --yes` removes only `safe` worktrees, so it no longer deletes a
+  merged worktree's untracked files.
+- `wt -d` and `wt clean` never delete the default branch, even when it is
+  merged into the current HEAD.
+- The picker's status checks use `git --no-optional-locks`, so they don't
+  refresh the index and collide with agents running git in those worktrees.
+- The herdr integration now parses herdr's JSON with `jq`, which it requires.
+  Worktree paths containing characters that JSON escapes (quotes, backslashes)
+  no longer slip past the check that refuses to remove a worktree an agent is
+  still busy in.
 
 ## [0.6.1] - 2026-06-29
 

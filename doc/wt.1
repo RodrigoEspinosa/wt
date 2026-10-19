@@ -44,8 +44,17 @@ for the worktree you are currently in,
 if it has uncommitted changes, and
 .RB ↑ N / ↓ N
 for commits ahead of / behind its upstream.
-The preview pane shows the working-tree status and the last 10 commits for the
-highlighted worktree.
+With
+.B WT_HERDR=workspace
+the row also shows the state of the herdr agent working in that worktree.
+The preview pane has two views, cycled with
+.BR Tab :
+.I overview
+shows the working-tree status and the last 10 commits;
+.I diff
+shows the commits not on the default branch (its
+.B origin
+copy when one exists), their diffstat, and any uncommitted changes.
 From the picker you can also press
 .B Ctrl-N
 to create a worktree named by the text you have typed.
@@ -75,20 +84,37 @@ otherwise it falls back to
 .IR pr- number .
 .TP
 .B clean
-Find worktrees whose branch is fully merged into the default branch or
-whose upstream branch has been deleted
-.RB ( [gone] ),
-and offer them for removal in an
+List every worktree except the primary one with its disk usage, the time
+since the last git activity in it, and a verdict, safest first:
+.B safe
+(merged into the default branch or upstream gone, with nothing uncommitted;
+or its directory is already deleted),
+.B idle
+(not merged, nothing uncommitted; the branch is kept),
+.B untracked
+(untracked files would be deleted),
+or one of the refused verdicts
+.BR dirty ,
+.BR orphan ,
+.BR locked ,
+.BR busy " (a herdr agent is working in it), and"
+.BR current .
+Pick which to remove in an
 .B fzf
 multi-select list
 .RB ( Tab
 to mark,
+.B Ctrl-A
+to mark all shown,
+.B Ctrl-/
+to switch the preview,
 .B Enter
-to remove).
-Without
+to remove); refused worktrees are skipped.
+With
+.BR \-\-list ,
+or without
 .BR fzf ,
-the candidates are printed for removal with
-.BR "wt \-d" .
+the report is printed instead.
 With
 .BR \-\-prune ,
 .B "git fetch \-\-all \-\-prune"
@@ -98,8 +124,9 @@ With
 .B \-\-yes
 (alias
 .BR \-\-all ),
-every candidate is removed without the interactive prompt — useful in
-scripts.
+every
+.B safe
+worktree is removed without the interactive prompt — useful in scripts.
 .TP
 .BI "init " shell
 Print shell integration code for
@@ -231,6 +258,9 @@ Create (or switch to) a worktree named by the typed query.
 .TP
 .B "Ctrl-D, Del"
 Delete the highlighted worktree.
+.TP
+.B Tab
+Cycle the preview pane between the overview and diff views.
 .SH ENVIRONMENT
 .TP
 .B WT_BASE_DIR
@@ -267,6 +297,8 @@ Removing a worktree closes its herdr workspace, except the one
 .B wt
 runs in, and is refused while an agent in that workspace is working or
 waiting on input.
+Requires
+.BR jq (1).
 .SH EXIT STATUS
 .TP
 .B 0
@@ -311,7 +343,7 @@ $ wt pr 123
 .fi
 .RE
 .PP
-Remove all merged or stale worktrees interactively:
+Review worktrees and pick which to remove:
 .PP
 .RS
 .nf
