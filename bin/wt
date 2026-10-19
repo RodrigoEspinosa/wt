@@ -808,8 +808,10 @@ human_age() {
 # them in parallel, and print the raw rows sorted safest-first, then by size.
 clean_report() {
   local list primary jobs
-  list="$(list_worktrees)"
   primary="$(primary_worktree)"
+  list="$(list_worktrees | P="$primary" awk -F'\t' '$2 != ENVIRON["P"]')"
+  # GNU xargs runs its command once even on empty input, so stop here.
+  [ -z "$list" ] && return 0
 
   export WT_CUR_TOP WT_AGENTS WT_DEF WT_MERGED WT_GONE WT_LOCKED WT_NOW
   WT_CUR_TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -825,7 +827,6 @@ clean_report() {
 
   jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
   printf '%s\n' "$list" |
-    P="$primary" awk -F'\t' '$2 != ENVIRON["P"]' |
     tr '\t\n' '\0\0' |
     xargs -0 -n2 -P "$jobs" bash -c 'clean_row "$@"' _ |
     sort -t$'\t' -k1,1n -k2,2nr
